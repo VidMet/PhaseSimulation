@@ -1,0 +1,360 @@
+<!DOCTYPE html>
+<html lang="nb">
+<head>
+  <meta charset="UTF-8"/>
+  <title>BIM 4D Fasesimulator v1.0</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  
+  <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
+  
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
+
+    :root {
+      --bg:        #0d1117;
+      --surface:   #161b22;
+      --surface2:  #1f2937;
+      --border:    #30363d;
+      --ink:       #e6edf3;
+      --muted:     #7d8590;
+      --blue:      #58a6ff;
+      --blue-dim:  #0d2044;
+      --green:     #3fb950;
+      --red:       #f85149;
+      --mono:      'JetBrains Mono', monospace;
+      --sans:      'Syne', sans-serif;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--ink); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+    .header-title { flex: 1; }
+    .header-title h1 { font-size: 16px; font-weight: 800; color: var(--ink); }
+    .header-title p { font-size: 11px; color: var(--muted); font-family: var(--mono); }
+
+    .btn { font-family: var(--sans); font-size: 12px; font-weight: 700; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; transition: all .15s; white-space: nowrap; }
+    .btn:disabled { opacity: .4; cursor: not-allowed; }
+    .btn-primary { background: var(--blue); color: #000; }
+    .btn-ghost   { background: var(--surface2); color: var(--ink); border: 1px solid var(--border); }
+    
+    #statusBar { font-family: var(--mono); font-size: 11px; padding: 6px 16px; background: var(--blue-dim); color: var(--blue); border-bottom: 1px solid #1a3a5c; }
+    #statusBar.ok { background: #1a3a22; color: var(--green); }
+    #statusBar.error { background: #3a1212; color: var(--red); }
+
+    #controlBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
+    .select-group { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 250px; }
+    label { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
+    select { font-family: var(--mono); font-size: 12px; background: var(--surface2); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; width: 100%; outline: none; }
+
+    main { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px 20px; }
+    
+    .timeline-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 30px; width: 100%; max-width: 800px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 20px; }
+    
+    .phase-display { text-align: center; }
+    .phase-label { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
+    .phase-value { font-size: 32px; font-weight: 800; color: var(--blue); }
+
+    .slider-wrapper { position: relative; width: 100%; padding: 10px 0; }
+    input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
+    input[type=range]:focus { outline: none; }
+    input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 8px; cursor: pointer; background: var(--surface2); border-radius: 4px; border: 1px solid var(--border); }
+    input[type=range]::-webkit-slider-thumb { border: 2px solid var(--blue); height: 24px; width: 24px; border-radius: 50%; background: var(--bg); cursor: pointer; -webkit-appearance: none; margin-top: -9px; transition: transform 0.1s; }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.1); background: var(--blue); }
+    
+    .timeline-markers { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 5px; }
+
+    .empty-state { text-align: center; color: var(--muted); font-size: 13px; max-width: 400px; line-height: 1.6; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="header-title">
+    <h1>BIM 4D Fasesimulator</h1>
+    <p>Tidslinjefiltrering av modeller i sanntid</p>
+  </div>
+  <button class="btn btn-ghost" id="btnLoad" disabled>1. Last inn modeller</button>
+</header>
+
+<div id="statusBar">Kobler til Trimble Connect...</div>
+
+<div id="controlBar">
+  <div class="select-group">
+    <label>Tidsegenskap:</label>
+    <select id="propSelect" disabled><option value="">Skann modeller først...</option></select>
+  </div>
+</div>
+
+<main>
+  <div class="empty-state" id="emptyState">
+    Last inn modeller, og velg deretter hvilken egenskap som definerer fremdriften (f.eks. "Fase" eller "Byggeuke") for å aktivere tidslinjen.
+  </div>
+
+  <div class="timeline-container" id="timelineUI">
+    <div class="phase-display">
+      <div class="phase-label">Gjeldende visning</div>
+      <div class="phase-value" id="currentPhaseText">--</div>
+    </div>
+    
+    <div class="slider-wrapper">
+      <input type="range" id="phaseSlider" min="0" max="0" value="0" step="1">
+      <div class="timeline-markers">
+        <span id="markerStart">Start</span>
+        <span id="markerEnd">Slutt</span>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script>
+let API = null;
+let modelObjectsData = []; 
+let allDiscoveredProperties = new Set(); 
+let uniquePhases = [];
+const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
+const API_CHUNK_LIMIT = 1000; 
+
+const $ = id => document.getElementById(id);
+const setStatus = (m, c='') => { $('statusBar').textContent = m; $('statusBar').className = c; };
+
+function getIfcType(obj){
+    const s = (obj.class || obj.className || obj.type || obj.ifcType || obj.ifcEntity || '').toString().trim().toUpperCase();
+    if (s && s.startsWith('IFC')) return s;
+    for (const ps of (obj.properties || [])) {
+        for (const p of (ps.properties || [])) {
+            const v = (p.value || '').toString().trim().toUpperCase();
+            if (v.startsWith('IFC')) return v;
+        }
+    }
+    return '';
+}
+
+function getAllRuntimeIds(obj) {
+  let ids = [];
+  const mainId = obj.id || obj.objectRuntimeId;
+  if (mainId != null) ids.push(mainId);
+  if (obj.objects && Array.isArray(obj.objects)) {
+    obj.objects.forEach(child => { ids = ids.concat(getAllRuntimeIds(child)); });
+  }
+  return ids;
+}
+
+function buildHierarchyMap(obj, parentId = null, map) {
+  const currentId = obj.id || obj.objectRuntimeId;
+  if (parentId != null && currentId != null) map.set(currentId, parentId);
+  if (obj.objects && Array.isArray(obj.objects)) {
+      obj.objects.forEach(child => buildHierarchyMap(child, currentId, map));
+  }
+}
+
+async function connect(){
+  try {
+    API = await window.TrimbleConnectWorkspace.connect(window.parent);
+    $('btnLoad').disabled = false;
+    setStatus('✅ Tilkoblet. Pass på at "Ghost hidden objects" er AV i innstillingene.', 'ok');
+  } catch(e) { setStatus('❌ Kunne ikke koble til API.', 'error'); }
+}
+
+async function scanModels() {
+  $('btnLoad').disabled = true;
+  setStatus('⏳ Skanner modeller og egenskaper...');
+  modelObjectsData = [];
+  allDiscoveredProperties.clear();
+
+  try {
+    const objs = await API.viewer.getObjects();
+    const activeModels = (objs || []).filter(m => m.objects && m.objects.length > 0);
+    
+    if (activeModels.length === 0) {
+      setStatus('⚠️ Fant ingen objekter i visningen.', 'error');
+      $('btnLoad').disabled = false;
+      return;
+    }
+
+    let totalObjectsCount = 0;
+    const chunksToProcess = [];
+
+    activeModels.forEach(m => {
+      let allExpandedIds = [];
+      m.objects.forEach(rawO => { allExpandedIds = allExpandedIds.concat(getAllRuntimeIds(rawO)); });
+      const uniqueIds = Array.from(new Set(allExpandedIds));
+      chunksToProcess.push({ modelId: m.modelId || m.modelid, objectIds: uniqueIds, rawObjects: m.objects });
+      totalObjectsCount += uniqueIds.length;
+    });
+
+    let processedCount = 0;
+
+    for (const chunkGroup of chunksToProcess) {
+      const mid = chunkGroup.modelId;
+      const ids = chunkGroup.objectIds;
+
+      const childToParentMap = new Map();
+      chunkGroup.rawObjects.forEach(rawO => buildHierarchyMap(rawO, null, childToParentMap));
+
+      const tempObjectsDataMap = new Map();
+      ids.forEach(id => {
+        tempObjectsDataMap.set(id, { modelId: mid, runtimeId: id, isIgnored: false, props: {} });
+      });
+
+      for (let i = 0; i < ids.length; i += 200) {
+        const currentBatch = ids.slice(i, i + 200);
+        const propsArr = await API.viewer.getObjectProperties(mid, currentBatch);
+        
+        propsArr.forEach(o => {
+          const rId = o.id || o.objectRuntimeId;
+          if(tempObjectsDataMap.has(rId)) {
+            const objData = tempObjectsDataMap.get(rId);
+            objData.isIgnored = IGNORE.has(getIfcType(o));
+            
+            (o.properties || []).forEach(g => {
+              (g.properties || []).forEach(p => {
+                const val = p.value ? p.value.toString().trim() : "";
+                if (val) {
+                  objData.props[p.name.trim()] = val;
+                  if (!objData.isIgnored) allDiscoveredProperties.add(p.name.trim());
+                }
+              });
+            });
+          }
+        });
+        processedCount += currentBatch.length;
+        setStatus(`⏳ Skanner egenskaper... ${processedCount} / ${totalObjectsCount}`);
+      }
+      
+      // Arvelogikk
+      tempObjectsDataMap.forEach((obj, runtimeId) => {
+        let currentParentId = childToParentMap.get(runtimeId);
+        let depth = 0;
+        while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 10) {
+          const parentObj = tempObjectsDataMap.get(currentParentId);
+          for (const key in parentObj.props) {
+            if (!obj.props[key]) obj.props[key] = parentObj.props[key];
+          }
+          currentParentId = childToParentMap.get(currentParentId);
+          depth++;
+        }
+        if (!obj.isIgnored) modelObjectsData.push(obj);
+      });
+    }
+
+    populatePropertyDropdown();
+    setStatus(`✅ Skanning ferdig. Velg en egenskap i menyen for å starte.`, 'ok');
+  } catch(e) {
+    setStatus('❌ Feil under skanning: ' + e.message, 'error');
+  }
+  $('btnLoad').disabled = false;
+}
+
+function populatePropertyDropdown() {
+  const select = $('propSelect');
+  const options = Array.from(allDiscoveredProperties).sort((a,b) => a.localeCompare(b, 'no', {sensitivity: 'base'}));
+  select.innerHTML = '<option value="">-- Velg egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
+  select.disabled = false;
+}
+
+$('propSelect').addEventListener('change', (e) => {
+  const propName = e.target.value;
+  if (!propName) {
+    $('timelineUI').style.display = 'none';$('emptyState').style.display = 'block';
+    return;
+  }
+
+  // Hent alle unike verdier for valgt egenskap
+  const valuesSet = new Set();
+  modelObjectsData.forEach(obj => {
+    if (obj.props[propName]) valuesSet.add(obj.props[propName]);
+  });
+  
+  // Sortering: Prøver numerisk sortering først, faller tilbake til alfabetisk
+  uniquePhases = Array.from(valuesSet).sort((a, b) => {
+    const numA = parseFloat(a); const numB = parseFloat(b);
+    if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
+    return a.localeCompare(b, 'no', {sensitivity: 'base'});
+  });
+
+  if (uniquePhases.length === 0) {
+    setStatus('⚠️ Ingen verdier funnet for denne egenskapen.', 'error');
+    return;
+  }
+
+  // Konfigurer slider
+  const slider = $('phaseSlider');
+  slider.min = 0;
+  slider.max = uniquePhases.length - 1;
+  slider.value = uniquePhases.length - 1; // Start med alt synlig
+
+  $('markerStart').textContent = uniquePhases[0];
+  $('markerEnd').textContent = uniquePhases[uniquePhases.length - 1];$('currentPhaseText').textContent = uniquePhases[slider.value];
+  
+  $('emptyState').style.display = 'none';$('timelineUI').style.display = 'flex';
+  
+  runPhaseSimulation(slider.value, propName);
+});
+
+// Oppdaterer kun tekst mens man drar i slideren for ytelsens skyld
+$('phaseSlider').addEventListener('input', (e) => {$('currentPhaseText').textContent = uniquePhases[e.target.value];
+});
+
+// Utfører den tunge 3D-filtreringen først når brukeren slipper museknappen
+$('phaseSlider').addEventListener('change', (e) => {
+    const propName = $('propSelect').value;
+    runPhaseSimulation(e.target.value, propName);
+});
+
+async function runPhaseSimulation(sliderIndex, propName) {
+  if (!API || !modelObjectsData.length) return;
+  
+  const currentPhaseValue = uniquePhases[sliderIndex];
+  const visibilityMap = {};
+
+  // For kumulativ visning: Finn indeksen for objektets fase. 
+  // Er indeksen <= sliderIndex, skal den vises. Hvis ikke, skjules den.
+  modelObjectsData.forEach(obj => {
+    if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { show: [], hide: [] };
+    
+    const objPhaseValue = obj.props[propName];
+    const objPhaseIndex = uniquePhases.indexOf(objPhaseValue);
+    
+    if (objPhaseIndex !== -1 && objPhaseIndex <= sliderIndex) {
+      visibilityMap[obj.modelId].show.push(obj.runtimeId);
+    } else {
+      visibilityMap[obj.modelId].hide.push(obj.runtimeId);
+    }
+  });
+
+  try {
+    setStatus(`⏳ Spoler til fase: ${currentPhaseValue}...`);
+    
+    for (const mid of Object.keys(visibilityMap)) {
+      const { show, hide } = visibilityMap[mid];
+
+      if (hide.length > 0) {
+        for (let i = 0; i < hide.length; i += API_CHUNK_LIMIT) {
+          const chunk = hide.slice(i, i + API_CHUNK_LIMIT);
+          await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: false });
+          await new Promise(r => setTimeout(r, 30));
+        }
+      }
+      
+      if (show.length > 0) {
+        for (let i = 0; i < show.length; i += API_CHUNK_LIMIT) {
+          const chunk = show.slice(i, i + API_CHUNK_LIMIT);
+          await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
+          await new Promise(r => setTimeout(r, 30));
+        }
+      }
+    }
+
+    if (API.viewer.refresh) try { await API.viewer.refresh(); } catch(e){}
+    setStatus(`✅ Viser fase: ${currentPhaseValue}`, 'ok');
+  } catch (e) {
+    setStatus('❌ Feil under 4D-oppdatering: ' + e.message, 'error');
+  }
+}
+
+$('btnLoad').onclick = scanModels;
+connect();
+</script>
+</body>
+</html>

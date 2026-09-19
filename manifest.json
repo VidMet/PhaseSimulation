@@ -1,0 +1,7 @@
+{
+  "title": "Fasesimulering i Trimble Connect",
+  "icon": "https://vidmet.github.io/PhaseSimulation/clash.png",
+  "url": "https://vidmet.github.io/PhaseSimulation/index.html",
+  "description": "Simulering av faser i et prosjekt",
+  "enabled": true
+}
