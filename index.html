@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fasesimulator v1.0</title>
+  <title>BIM 4D Fasesimulator v2.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -11,84 +11,123 @@
     @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;600;700&family=Syne:wght@400;600;700;800&display=swap');
 
     :root {
-      --bg:        #0d1117;
-      --surface:   #161b22;
-      --surface2:  #1f2937;
-      --border:    #30363d;
-      --ink:       #e6edf3;
-      --muted:     #7d8590;
-      --blue:      #58a6ff;
-      --blue-dim:  #0d2044;
-      --green:     #3fb950;
-      --red:       #f85149;
-      --mono:      'JetBrains Mono', monospace;
-      --sans:      'Syne', sans-serif;
+      --bg: #f3f4f6; --surface: #ffffff; --surface2: #e5e7eb; --border: #d1d5db;
+      --ink: #111827; --muted: #6b7280; --green: #166534; --red: #b91c1c; --blue: #1d4ed8;
+      --mono: 'JetBrains Mono', monospace; --sans: 'Syne', sans-serif;
+      --ok: #22a06b; --warn: #f79009; --bad: #d92d20;
     }
 
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--ink); font-family: var(--sans); min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+    html, body { background: var(--bg); color: var(--ink); font-family: var(--sans); height: 100%; margin: 0; padding: 0; display: flex; flex-direction: column; overflow: hidden; min-width: 380px; }
+    
+    /* HEADER STYLING */
+    .topbar {
+      height: 92px; background: #fff; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; gap: 18px; padding: 10px 18px; flex: 0 0 auto;
+    }
+    .logo-card {
+      width: 145px; height: 68px; border: 1px solid var(--border); border-radius: 12px;
+      background: #fff; display: flex; align-items: center; justify-content: center;
+      box-shadow: 0 4px 14px rgba(16,24,40,.08); overflow: hidden; flex-shrink: 0;
+    }
+    .logo-card img { max-width: 128px; max-height: 50px; object-fit: contain; }
+    
+    .app-title { display: flex; flex-direction: column; line-height: 1.2; }
+    .app-title b { font-size: 18px; color: #0050b5; }
+    .app-title span { font-size: 14px; font-weight: 600; }
+    .app-title em { font-size: 12px; color: #667085; font-style: normal; }
+    
+    .status { margin-left: auto; display: flex; align-items: center; gap: 7px; color: #667085; font-size: 12px; font-weight: 600; white-space: nowrap; }
+    .dot { width: 9px; height: 9px; border-radius: 50%; background: #98a2b3; flex-shrink: 0; }
+    .dot.live { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+    .dot.warn { background: var(--warn); }
+    .dot.error { background: var(--bad); }
 
-    header { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
-    .header-title { flex: 1; }
-    .header-title h1 { font-size: 16px; font-weight: 800; color: var(--ink); }
-    .header-title p { font-size: 11px; color: var(--muted); font-family: var(--mono); }
-
-    .btn { font-family: var(--sans); font-size: 12px; font-weight: 700; padding: 8px 16px; border-radius: 6px; border: none; cursor: pointer; transition: all .15s; white-space: nowrap; }
+    .btn { font-family: var(--sans); font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: 6px; border: none; cursor: pointer; transition: opacity .15s, transform .1s; white-space: nowrap; }
     .btn:disabled { opacity: .4; cursor: not-allowed; }
-    .btn-primary { background: var(--blue); color: #000; }
-    .btn-ghost   { background: var(--surface2); color: var(--ink); border: 1px solid var(--border); }
+    .btn:not(:disabled):hover { opacity: .85; }
+    .btn:not(:disabled):active { transform: scale(.97); }
+    .btn-primary { background: var(--blue); color: #ffffff; }
+    .btn-secondary { background: var(--surface2); color: var(--ink); border: 1px solid var(--border); margin-left: 4px; }
+    .btn-secondary:not(:disabled):hover { background: var(--border); }
     
-    #statusBar { font-family: var(--mono); font-size: 11px; padding: 6px 16px; background: var(--blue-dim); color: var(--blue); border-bottom: 1px solid #1a3a5c; }
-    #statusBar.ok { background: #1a3a22; color: var(--green); }
-    #statusBar.error { background: #3a1212; color: var(--red); }
-
-    #controlBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 20px; align-items: center; flex-wrap: wrap; }
-    .select-group { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 250px; }
-    label { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; text-transform: uppercase; letter-spacing: 0.5px; }
-    select { font-family: var(--mono); font-size: 12px; background: var(--surface2); color: var(--ink); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; width: 100%; outline: none; }
-
-    main { flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; padding: 40px 20px; }
+    #actionBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
+    #filterBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 8px 16px; display: flex; gap: 15px; align-items: center; flex-shrink: 0; flex-wrap: wrap; }
     
-    .timeline-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 30px; width: 100%; max-width: 800px; box-shadow: 0 10px 30px rgba(0,0,0,0.5); display: none; flex-direction: column; gap: 20px; }
+    .filter-group { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 150px; }
+    .filter-group label { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; font-weight: 600; }
+    .filter-group select { font-family: var(--sans); font-weight: 600; font-size: 12px; background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; flex: 1; min-width: 0; cursor: pointer; outline: none; }
+    .filter-group select:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    main { flex: 1 1 auto; overflow-y: auto; padding: 30px 16px; display: flex; flex-direction: column; align-items: center; }
+    
+    .timeline-container { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 30px; width: 100%; max-width: 800px; box-shadow: 0 4px 14px rgba(0,0,0,0.05); display: none; flex-direction: column; gap: 24px; }
     
     .phase-display { text-align: center; }
-    .phase-label { font-size: 12px; color: var(--muted); font-family: var(--mono); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 1px; }
-    .phase-value { font-size: 32px; font-weight: 800; color: var(--blue); }
+    .phase-label { font-size: 11px; color: var(--muted); font-family: var(--mono); margin-bottom: 6px; text-transform: uppercase; letter-spacing: 1px; font-weight: 600; }
+    .phase-value { font-size: 36px; font-weight: 800; color: var(--blue); }
 
-    .slider-wrapper { position: relative; width: 100%; padding: 10px 0; }
+    .slider-wrapper { position: relative; width: 100%; padding: 15px 0; }
     input[type=range] { -webkit-appearance: none; width: 100%; background: transparent; }
     input[type=range]:focus { outline: none; }
     input[type=range]::-webkit-slider-runnable-track { width: 100%; height: 8px; cursor: pointer; background: var(--surface2); border-radius: 4px; border: 1px solid var(--border); }
-    input[type=range]::-webkit-slider-thumb { border: 2px solid var(--blue); height: 24px; width: 24px; border-radius: 50%; background: var(--bg); cursor: pointer; -webkit-appearance: none; margin-top: -9px; transition: transform 0.1s; }
-    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.1); background: var(--blue); }
+    input[type=range]::-webkit-slider-thumb { border: 2px solid var(--blue); height: 24px; width: 24px; border-radius: 50%; background: var(--surface); cursor: pointer; -webkit-appearance: none; margin-top: -8px; transition: transform 0.1s, background 0.1s; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+    input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.1); background: #eff6ff; }
+    input[type=range]:active::-webkit-slider-thumb { background: var(--blue); }
     
-    .timeline-markers { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 10px; color: var(--muted); margin-top: 5px; }
+    .timeline-markers { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 10px; font-weight: 600; }
 
-    .empty-state { text-align: center; color: var(--muted); font-size: 13px; max-width: 400px; line-height: 1.6; }
+    .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 500px; margin: 0 auto; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
+    .empty-state h3 { font-size: 15px; color: var(--blue); margin-bottom: 16px; font-weight: 700; }
+    .empty-state ol { text-align: left; margin: 0 auto; color: var(--ink); line-height: 1.8; font-size: 13px; padding-left: 20px; }
+    .empty-state li { margin-bottom: 8px; }
+
+    @media(max-width:760px) {
+      .topbar { height: auto; padding: 8px; flex-wrap: wrap; }
+      .logo-card { width: 120px; height: 58px; }
+      .app-title b { font-size: 15px; }
+      .app-title span { font-size: 12px; }
+      .app-title em { display: none; }
+    }
   </style>
 </head>
 <body>
 
-<header>
-  <div class="header-title">
-    <h1>BIM 4D Fasesimulator</h1>
-    <p>Tidslinjefiltrering av modeller i sanntid</p>
+<header class="topbar">
+  <div class="logo-card">
+    <img src="norconsult-logo-black.png" alt="Norconsult">
   </div>
-  <button class="btn btn-ghost" id="btnLoad" disabled>1. Last inn modeller</button>
+  <div class="app-title">
+    <b>BIM 4D Fasesimulator</b>
+    <span>Tidslinjefiltrering i sanntid</span>
+    <em>v2.0</em>
+  </div>
+  <div class="status">
+    <span id="statusText">Venter...</span>
+    <div class="dot" id="statusIndicator"></div>
+  </div>
 </header>
 
-<div id="statusBar">Kobler til Trimble Connect...</div>
+<div id="actionBar">
+  <button class="btn btn-primary" id="btnLoad" disabled>▶ Last inn modeller</button>
+  <button class="btn btn-secondary" id="btnReset" disabled>↺ Nullstill visning</button>
+</div>
 
-<div id="controlBar">
-  <div class="select-group">
+<div id="filterBar">
+  <div class="filter-group">
     <label>Tidsegenskap:</label>
     <select id="propSelect" disabled><option value="">Skann modeller først...</option></select>
   </div>
 </div>
 
-<main>
+<main id="mainContent">
   <div class="empty-state" id="emptyState">
-    Last inn modeller, og velg deretter hvilken egenskap som definerer fremdriften (f.eks. "Fase" eller "Byggeuke") for å aktivere tidslinjen.
+    <h3>Slik bruker du verktøyet:</h3>
+    <ol>
+      <li>Trykk på <strong>▶ Last inn modeller</strong> for å skanne prosjektet. Pass på at "Ghost hidden objects" er AV i innstillingene til Trimble Connect.</li>
+      <li>Velg hvilken egenskap i rullegardinmenyen som definerer fremdriften (f.eks. "Fase" eller "Byggeuke").</li>
+      <li>Bruk tidslinjen som dukker opp for å spole frem og tilbake i prosjektets livsløp.</li>
+    </ol>
   </div>
 
   <div class="timeline-container" id="timelineUI">
@@ -116,7 +155,10 @@ const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 1000; 
 
 const $ = id => document.getElementById(id);
-const setStatus = (m, c='') => { $('statusBar').textContent = m; $('statusBar').className = c; };
+const setStatus = (txt, type='normal') => { 
+  $('statusText').textContent = txt; 
+  $('statusIndicator').className = 'dot ' + (type==='ok' ? 'live' : type==='error' ? 'error' : type==='warn' ? 'warn' : '');
+};
 
 function getIfcType(obj){
     const s = (obj.class || obj.className || obj.type || obj.ifcType || obj.ifcEntity || '').toString().trim().toUpperCase();
@@ -152,13 +194,13 @@ async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
     $('btnLoad').disabled = false;
-    setStatus('✅ Tilkoblet. Pass på at "Ghost hidden objects" er AV i innstillingene.', 'ok');
-  } catch(e) { setStatus('❌ Kunne ikke koble til API.', 'error'); }
+    setStatus('Klar til bruk', 'ok');
+  } catch(e) { setStatus('Frakoblet', 'error'); }
 }
 
 async function scanModels() {
   $('btnLoad').disabled = true;
-  setStatus('⏳ Skanner modeller og egenskaper...');
+  setStatus('Skanner modeller...', 'warn');
   modelObjectsData = [];
   allDiscoveredProperties.clear();
 
@@ -167,7 +209,7 @@ async function scanModels() {
     const activeModels = (objs || []).filter(m => m.objects && m.objects.length > 0);
     
     if (activeModels.length === 0) {
-      setStatus('⚠️ Fant ingen objekter i visningen.', 'error');
+      setStatus('Ingen objekter funnet i visningen', 'error');
       $('btnLoad').disabled = false;
       return;
     }
@@ -219,10 +261,10 @@ async function scanModels() {
           }
         });
         processedCount += currentBatch.length;
-        setStatus(`⏳ Skanner egenskaper... ${processedCount} / ${totalObjectsCount}`);
+        setStatus(`Skanner egenskaper... ${processedCount} / ${totalObjectsCount}`, 'warn');
       }
       
-      // Arvelogikk
+      // Arvelogikk for geometrinoder og underobjekter
       tempObjectsDataMap.forEach((obj, runtimeId) => {
         let currentParentId = childToParentMap.get(runtimeId);
         let depth = 0;
@@ -239,9 +281,10 @@ async function scanModels() {
     }
 
     populatePropertyDropdown();
-    setStatus(`✅ Skanning ferdig. Velg en egenskap i menyen for å starte.`, 'ok');
+    $('btnReset').disabled = false;
+    setStatus(`Skanning ferdig`, 'ok');
   } catch(e) {
-    setStatus('❌ Feil under skanning: ' + e.message, 'error');
+    setStatus('Feil under skanning', 'error');
   }
   $('btnLoad').disabled = false;
 }
@@ -260,13 +303,11 @@ $('propSelect').addEventListener('change', (e) => {
     return;
   }
 
-  // Hent alle unike verdier for valgt egenskap
   const valuesSet = new Set();
   modelObjectsData.forEach(obj => {
     if (obj.props[propName]) valuesSet.add(obj.props[propName]);
   });
   
-  // Sortering: Prøver numerisk sortering først, faller tilbake til alfabetisk
   uniquePhases = Array.from(valuesSet).sort((a, b) => {
     const numA = parseFloat(a); const numB = parseFloat(b);
     if (!isNaN(numA) && !isNaN(numB)) return numA - numB;
@@ -274,15 +315,14 @@ $('propSelect').addEventListener('change', (e) => {
   });
 
   if (uniquePhases.length === 0) {
-    setStatus('⚠️ Ingen verdier funnet for denne egenskapen.', 'error');
+    setStatus('Ingen verdier funnet for egenskapen', 'error');
     return;
   }
 
-  // Konfigurer slider
   const slider = $('phaseSlider');
   slider.min = 0;
   slider.max = uniquePhases.length - 1;
-  slider.value = uniquePhases.length - 1; // Start med alt synlig
+  slider.value = uniquePhases.length - 1; 
 
   $('markerStart').textContent = uniquePhases[0];
   $('markerEnd').textContent = uniquePhases[uniquePhases.length - 1];$('currentPhaseText').textContent = uniquePhases[slider.value];
@@ -292,11 +332,11 @@ $('propSelect').addEventListener('change', (e) => {
   runPhaseSimulation(slider.value, propName);
 });
 
-// Oppdaterer kun tekst mens man drar i slideren for ytelsens skyld
+// Ytelsesoptimalisering: Oppdaterer kun tekstetikett mens man drar
 $('phaseSlider').addEventListener('input', (e) => {$('currentPhaseText').textContent = uniquePhases[e.target.value];
 });
 
-// Utfører den tunge 3D-filtreringen først når brukeren slipper museknappen
+// Tung 3D-operasjon skjer først når brukeren slipper bryteren
 $('phaseSlider').addEventListener('change', (e) => {
     const propName = $('propSelect').value;
     runPhaseSimulation(e.target.value, propName);
@@ -308,14 +348,13 @@ async function runPhaseSimulation(sliderIndex, propName) {
   const currentPhaseValue = uniquePhases[sliderIndex];
   const visibilityMap = {};
 
-  // For kumulativ visning: Finn indeksen for objektets fase. 
-  // Er indeksen <= sliderIndex, skal den vises. Hvis ikke, skjules den.
   modelObjectsData.forEach(obj => {
     if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { show: [], hide: [] };
     
     const objPhaseValue = obj.props[propName];
     const objPhaseIndex = uniquePhases.indexOf(objPhaseValue);
     
+    // Alt til og med nåværende fase er synlig. Fremtidige faser skjules.
     if (objPhaseIndex !== -1 && objPhaseIndex <= sliderIndex) {
       visibilityMap[obj.modelId].show.push(obj.runtimeId);
     } else {
@@ -324,11 +363,12 @@ async function runPhaseSimulation(sliderIndex, propName) {
   });
 
   try {
-    setStatus(`⏳ Spoler til fase: ${currentPhaseValue}...`);
+    setStatus(`Oppdaterer fase: ${currentPhaseValue}...`, 'warn');
     
     for (const mid of Object.keys(visibilityMap)) {
       const { show, hide } = visibilityMap[mid];
 
+      // Skjul fremtidige objekter (visible: false) med pustepause for å unngå krasj
       if (hide.length > 0) {
         for (let i = 0; i < hide.length; i += API_CHUNK_LIMIT) {
           const chunk = hide.slice(i, i + API_CHUNK_LIMIT);
@@ -337,6 +377,7 @@ async function runPhaseSimulation(sliderIndex, propName) {
         }
       }
       
+      // Vis nåværende og tidligere objekter (visible: "reset") for å beholde originale farger
       if (show.length > 0) {
         for (let i = 0; i < show.length; i += API_CHUNK_LIMIT) {
           const chunk = show.slice(i, i + API_CHUNK_LIMIT);
@@ -347,13 +388,41 @@ async function runPhaseSimulation(sliderIndex, propName) {
     }
 
     if (API.viewer.refresh) try { await API.viewer.refresh(); } catch(e){}
-    setStatus(`✅ Viser fase: ${currentPhaseValue}`, 'ok');
+    setStatus(`Viser fase: ${currentPhaseValue}`, 'ok');
   } catch (e) {
-    setStatus('❌ Feil under 4D-oppdatering: ' + e.message, 'error');
+    setStatus('Feil under faseoppdatering', 'error');
   }
 }
 
+async function nullstillVisning() {
+    if (!API || !modelObjectsData.length) return;
+    setStatus('Nullstiller 3D-visning...', 'warn');
+    try {
+        const resetIds = {};
+        modelObjectsData.forEach(obj => {
+            if(!resetIds[obj.modelId]) resetIds[obj.modelId] = [];
+            resetIds[obj.modelId].push(obj.runtimeId);
+        });
+        
+        for (const mid in resetIds) {
+            for (let i = 0; i < resetIds[mid].length; i += API_CHUNK_LIMIT) {
+                await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: resetIds[mid].slice(i, i + API_CHUNK_LIMIT) }] }, { visible: "reset" });
+                await new Promise(r => setTimeout(r, 30));
+            }
+        }
+        
+        if (API.viewer.refresh) await API.viewer.refresh();
+        $('propSelect').value = '';
+        $('timelineUI').style.display = 'none';$('emptyState').style.display = 'block';
+        setStatus('Visning nullstilt', 'ok');
+    } catch(e) {
+        setStatus('Feil ved nullstilling', 'error');
+    }
+}
+
 $('btnLoad').onclick = scanModels;
+$('btnReset').onclick = nullstillVisning;
+
 connect();
 </script>
 </body>
