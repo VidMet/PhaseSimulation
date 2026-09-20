@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v21.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v22.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>ÆØÅ og Excel CSV Fikset</span>
-    <em>v21.0</em>
+    <span>Skuddsikker Fargelegging via State</span>
+    <em>v22.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -470,7 +470,6 @@ async function scanModels() {
       tempObjectsDataMap.forEach((obj, runtimeId) => {
         let currentParentId = childToParentMap.get(runtimeId);
         let depth = 0;
-        // Klatrer dypere opp i treet for å fange grøfteskråninger!
         while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 50) {
           const parentObj = tempObjectsDataMap.get(currentParentId);
           for (const key in parentObj.props) {
@@ -568,7 +567,6 @@ $('csvFileInput').addEventListener('change', function(e) {
 
   const reader = new FileReader();
   reader.onload = function(event) { parseCSVAndBuildTimeline(event.target.result); };
-  // Løsning: Leser filen i ISO-8859-1 for å støtte særnorske tegn og Microsoft Excel
   reader.readAsText(file, 'ISO-8859-1'); 
 });
 
@@ -584,7 +582,6 @@ function parseCSVAndBuildTimeline(csvText) {
     if (tabs > commas && tabs > semis) sep = '\t';
     else if (commas > semis && commas > tabs) sep = ',';
 
-    // Løsning: Bruker toLocaleUpperCase('nb-NO') for å respektere æ, ø og å
     const clean = str => (str || '').replace(/(^"|"$)/g, '').trim().toLocaleUpperCase('nb-NO');
 
     for (let i = 1; i < lines.length; i++) {
@@ -612,7 +609,6 @@ function parseCSVAndBuildTimeline(csvText) {
     timelineSteps = ["Dag 0 (Før oppstart)"];
     let day0Map = new Map();
 
-    // GENERERER KONTINUERLIGE DAGER FOR Å UNNGÅ TOMROM
     if (isRelative) {
         let minDag = Infinity, maxDag = -Infinity;
         records.forEach(r => {
@@ -837,7 +833,6 @@ async function runPhaseSimulation(sliderIndexRaw) {
           return; 
         }
 
-        // Løsning: Bruker toLocaleUpperCase('nb-NO') for modell-egenskapene også
         let typeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim().toLocaleUpperCase('nb-NO') : "";
         let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].toString().trim().toLocaleUpperCase('nb-NO') : "";
         let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toLocaleUpperCase('nb-NO') : "";
@@ -851,9 +846,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
 
         scheduleRules.forEach(r => {
             if (r.type === typeVal) {
-                // Sjekk om regelen gjelder for byggefasen
                 let matchBuild = (r.built === "" && builtVal === "") || (r.built !== "" && r.built === builtVal);
-                // Sjekk om regelen gjelder for rivefasen
                 let matchDemo = (r.demo === "" && demoVal === "") || (r.demo !== "" && r.demo === demoVal);
 
                 if (matchBuild || matchDemo) {
@@ -919,7 +912,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
           const stringModelId = String(mid);
           const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
 
-          // 1. Skjul det som skal skjules trygt (Bruker KUN visible: false)
+          // 1. Skjul det som skal skjules med KUN visible: false
           if (hidden.length > 0) {
             for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
               const chunk = hidden.slice(i, i + API_CHUNK_LIMIT); 
@@ -932,30 +925,42 @@ async function runPhaseSimulation(sliderIndexRaw) {
             }
           }
           
-          // 2. Vis ferdige objekter trygt (Bruker KUN visible: "reset")
+          // 2. Vis ferdige objekter trygt (visible: "reset") og fjern deretter farge
           if (completed.length > 0) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
               
+              await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
-                  await API.viewer.setObjectState(payload, { visible: "reset" });
-                  try { await API.viewer.setObjectColor(payload, null); } catch(err){}
-              } catch(err) { console.error("Feil ved visning/fargenullstilling:", err); }
+                  await API.viewer.setObjectState(payload, { color: "reset" }); 
+              } catch(err1) {
+                  try {
+                      await API.viewer.setObjectState(payload, { color: null });
+                  } catch(err2) {
+                      if (typeof API.viewer.setObjectColor === 'function') {
+                          try { await API.viewer.setObjectColor(payload, null); } catch(err3) {}
+                      }
+                  }
+              }
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
-          // 3. Vis og fargelegg aktive bygge-objekter
+          // 3. Vis og fargelegg aktive bygge-objekter 
           if (active_build.length > 0) {
             for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
               const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
               
+              await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
-                  await API.viewer.setObjectState(payload, { visible: "reset" });
-                  try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(err){}
-              } catch(err) { console.error("Feil ved grønn fargelegging:", err); }
+                  await API.viewer.setObjectState(payload, { color: COLOR_BUILD });
+              } catch(err1) { 
+                  if (typeof API.viewer.setObjectColor === 'function') {
+                      try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(err2){}
+                  }
+              }
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
@@ -966,10 +971,14 @@ async function runPhaseSimulation(sliderIndexRaw) {
               const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
               
+              await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
-                  await API.viewer.setObjectState(payload, { visible: "reset" });
-                  try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(err){}
-              } catch(err) { console.error("Feil ved rød fargelegging:", err); }
+                  await API.viewer.setObjectState(payload, { color: COLOR_DEMO });
+              } catch(err1) { 
+                  if (typeof API.viewer.setObjectColor === 'function') {
+                      try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(err2){}
+                  }
+              }
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
@@ -1003,13 +1012,18 @@ async function nullstillVisning() {
         for (const mid in resetIds) {
             const stringModelId = String(mid);
             for (let i = 0; i < resetIds[mid].length; i += API_CHUNK_LIMIT) {
-                const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
+                const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT); 
                 const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
                 
+                await API.viewer.setObjectState(payload, { visible: "reset" });
                 try {
-                    await API.viewer.setObjectState(payload, { visible: "reset" });
-                    try { await API.viewer.setObjectColor(payload, null); } catch(err){}
-                } catch(err) { console.error("Feil ved nullstilling:", err); }
+                    await API.viewer.setObjectState(payload, { color: "reset" });
+                } catch(err1) {
+                    try { await API.viewer.setObjectState(payload, { color: null }); } catch(err2){}
+                    if (typeof API.viewer.setObjectColor === 'function') {
+                        try { await API.viewer.setObjectColor(payload, null); } catch(err3){}
+                    }
+                }
                 await new Promise(r => setTimeout(r, 40));
             }
         }
