@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v7.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v8.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -77,7 +77,7 @@
     
     .timeline-markers { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 10px; font-weight: 600; }
     
-    .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 700px; margin: 0 auto; }
+    .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 750px; margin: 0 auto; }
     .empty-state h3 { font-size: 15px; color: var(--blue); margin-bottom: 16px; font-weight: 700; }
     .empty-state p { font-size: 13px; margin-bottom: 16px; line-height: 1.6; }
     
@@ -105,8 +105,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Aktivitetsfarging, riving og dynamiske filtre</span>
-    <em>v7.0</em>
+    <span>Bygging og Riving med fargekoding</span>
+    <em>v8.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -132,11 +132,11 @@
     <select id="propObjType" disabled><option value="">Skann først...</option></select>
   </div>
   <div class="filter-group">
-    <label>4. Fase Bygges:</label>
+    <label>4. Modell bygges:</label>
     <select id="propStart" disabled><option value="">Skann først...</option></select>
   </div>
   <div class="filter-group">
-    <label>5. Fase Rives:</label>
+    <label>5. Modell rives (Valgfri):</label>
     <select id="propEnd" disabled><option value="">Skann først...</option></select>
   </div>
   <div class="file-upload-wrapper" style="margin-left: auto;">
@@ -151,15 +151,15 @@
     <ol style="text-align: left; margin: 0 auto; line-height: 1.8; font-size: 13px; padding-left: 20px;">
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
-      <li>Velg egenskapene for Objekttype, Fase Bygges og Fase Rives. Du kan la Fase Bygges være tom hvis objektet skal vises fra start (eks. terreng).</li>
-      <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt.</li>
+      <li>Velg egenskapene for Objekttype, Modell bygges og Modell rives. La Bygges være tom hvis objektet er eksisterende.</li>
+      <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt/fag.</li>
       <li>Last opp din CSV/Excel-fil for å starte simuleringen!</li>
     </ol>
-    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
+    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (5 kolonner støttes):</p>
     <table>
-      <tr><th>Objekttype</th><th>Fase Bygges</th><th>Fase Rives</th><th>Byggestart</th><th>Byggeslutt</th><th>Rivedato (Valgfri)</th></tr>
-      <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>01.05.2025</td><td>15.05.2025</td><td></td></tr>
-      <tr><td>Skjæring</td><td></td><td>Fase 2</td><td></td><td></td><td>01.06.2025</td></tr>
+      <tr><th>Objekttype</th><th>Modell bygges</th><th>Modell rives</th><th>DatoStart</th><th>DatoSlutt</th></tr>
+      <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>01.05.2025</td><td>15.05.2025</td></tr>
+      <tr><td>Skjæring</td><td></td><td>Fase 2</td><td>16.05.2025</td><td>01.06.2025</td></tr>
     </table>
   </div>
 
@@ -221,7 +221,10 @@ let demoMap = new Map();
 
 const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
-const COLOR_ACTIVE = { r: 255, g: 140, b: 0, a: 255 };
+
+// Farger: Lun/lys grønn for oppføring, rød for riving
+const COLOR_BUILD = { r: 168, g: 208, b: 141, a: 255 }; 
+const COLOR_DEMO  = { r: 255, g: 76, b: 76, a: 255 }; 
 
 const $ = id => document.getElementById(id);
 const setStatus = (txt, type='normal') => { 
@@ -513,7 +516,7 @@ function parseCSVAndBuildTimeline(csvText) {
     const records = [];
     let missingAllDates = true;
 
-    // Henter inn fra opp til 6 kolonner
+    // Forventer 5 kolonner: type, build, demo, datoStart, datoSlutt
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(/[;,]/); 
         const type = (cols[0] || '').trim();
@@ -521,29 +524,25 @@ function parseCSVAndBuildTimeline(csvText) {
         const demo = (cols[2] || '').trim();
         const startStr = (cols[3] || '').trim();
         const endStr = (cols[4] || '').trim();
-        const demoStr = (cols[5] || '').trim();
 
-        if (startStr || endStr || demoStr) missingAllDates = false;
+        if (startStr || endStr) missingAllDates = false;
         
         if (type && (built || demo)) {
-            records.push({ type, built, demo, startStr, endStr, demoStr });
+            records.push({ type, built, demo, startStr, endStr });
         }
     }
 
     if (missingAllDates) {
         records.forEach((r, idx) => { 
-            if (r.built) {
-                r.startStr = `Dag ${idx * 3 + 1}`; 
-                r.endStr = `Dag ${idx * 3 + 2}`;
-            }
-            if (r.demo) r.demoStr = `Dag ${idx * 3 + 3}`;
+            r.startStr = `Dag ${idx * 2 + 1}`; 
+            r.endStr = `Dag ${idx * 2 + 2}`;
         });
     }
 
     // Samler og sorterer unike datoer
     let dateObjects = [];
     records.forEach(r => {
-        [r.startStr, r.endStr, r.demoStr].forEach(dStr => {
+        [r.startStr, r.endStr].forEach(dStr => {
             if (dStr && !dateObjects.find(d => d.str === dStr)) {
                 let sortVal = 0;
                 if (dStr.startsWith('Dag ')) {
@@ -568,19 +567,11 @@ function parseCSVAndBuildTimeline(csvText) {
     demoMap.clear();
 
     records.forEach(r => {
-        if (r.type && r.built) {
-            buildMap.set(`${r.type}|${r.built}`, {
-                startIdx: r.startStr ? timelineSteps.indexOf(r.startStr) : -1,
-                endIdx: r.endStr ? timelineSteps.indexOf(r.endStr) : -1
-            });
-        }
-        if (r.type && r.demo) {
-            let dIdx = -1;
-            if (r.demoStr) dIdx = timelineSteps.indexOf(r.demoStr);
-            else if (r.startStr) dIdx = timelineSteps.indexOf(r.startStr);
+        let sIdx = r.startStr ? timelineSteps.indexOf(r.startStr) : -1;
+        let eIdx = r.endStr ? timelineSteps.indexOf(r.endStr) : -1;
 
-            demoMap.set(`${r.type}|${r.demo}`, { demoIdx: dIdx });
-        }
+        if (r.type && r.built) buildMap.set(`${r.type}|${r.built}`, { startIdx: sIdx, endIdx: eIdx });
+        if (r.type && r.demo) demoMap.set(`${r.type}|${r.demo}`, { startIdx: sIdx, endIdx: eIdx });
     });
 
     if (timelineSteps.length === 0) return alert("Fant ingen gyldige data i filen.");
@@ -623,9 +614,9 @@ async function runPhaseSimulation(sliderIndex) {
   const filterCategories = Object.keys(activeFilters);
 
   modelObjectsData.forEach(obj => {
-    if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active: [], completed: [] };
+    if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active_build: [], active_demo: [], completed: [] };
     
-    // 1. Sjekk dynamiske filtre først
+    // Sjekk dynamiske filtre først
     let matchesFilters = true;
     for (const cat of filterCategories) {
       const propKey = $(`dynamicPropSelect${cat.replace('dynamic', '')}`).value;
@@ -641,7 +632,7 @@ async function runPhaseSimulation(sliderIndex) {
       return; 
     }
 
-    // 2. Livssyklus og Tidslinje-logikk
+    // Tidslinje og status-logikk
     let typeVal = obj.props[propObjType] || "";
     let builtVal = propStart ? (obj.props[propStart] || "") : "";
     let demoVal = propEnd ? (obj.props[propEnd] || "") : "";
@@ -649,56 +640,42 @@ async function runPhaseSimulation(sliderIndex) {
     let bSchedule = buildMap.get(`${typeVal}|${builtVal}`);
     let dSchedule = demoMap.get(`${typeVal}|${demoVal}`);
 
-    let sIdx = bSchedule ? bSchedule.startIdx : -1;
-    let eIdx = bSchedule ? bSchedule.endIdx : -1;
-    let dIdx = dSchedule ? dSchedule.demoIdx : -1;
+    let state = 'completed'; // Standard: eksisterende / ferdigbygd
 
-    let isVisible = false;
-    let isActive = false;
-
-    // A: Oppføring - Hvis Fase Bygges er blank, er objektet synlig fra start
-    if (builtVal === "") {
-        isVisible = true; 
-        isActive = false;
-    } else {
-        if (bSchedule) {
-            if (sIdx !== -1 && sliderIndex >= sIdx && (eIdx === -1 || sliderIndex <= eIdx)) {
-                isVisible = true;
-                isActive = true; // Objekt er under bygging
-            } else if (eIdx !== -1 && sliderIndex > eIdx) {
-                isVisible = true;
-                isActive = false; // Ferdigstilt
-            } else if (sIdx === -1) {
-                isVisible = true; // Kontekst / eksisterende
+    // 1. Byggefase
+    if (builtVal !== "") {
+        if (bSchedule && bSchedule.startIdx !== -1) {
+            if (sliderIndex < bSchedule.startIdx) {
+                state = 'hidden'; // Ikke bygget enda
+            } else if (bSchedule.endIdx !== -1 && sliderIndex >= bSchedule.startIdx && sliderIndex < bSchedule.endIdx) {
+                state = 'active_build'; // Under oppføring
+            } else {
+                state = 'completed'; // Ferdig
             }
         } else {
-            isVisible = true; // Vises som kontekst dersom den mangler i planen
+            state = 'hidden'; 
         }
     }
 
-    // B: Riving - Hvis vi har passert rivedato, skjul objektet igjen
-    if (demoVal !== "" && dIdx !== -1) {
-        if (sliderIndex >= dIdx) {
-            isVisible = false;
-            isActive = false;
+    // 2. Rivefase (Overstyrer byggestatus)
+    if (demoVal !== "") {
+        if (dSchedule && dSchedule.startIdx !== -1) {
+            if (dSchedule.endIdx !== -1 && sliderIndex >= dSchedule.startIdx && sliderIndex < dSchedule.endIdx) {
+                state = 'active_demo'; // Under riving
+            } else if (sliderIndex >= dSchedule.endIdx || (dSchedule.endIdx === -1 && sliderIndex >= dSchedule.startIdx)) {
+                state = 'hidden'; // Fjernet
+            }
         }
     }
 
-    // Sortér i riktig rendering-bøtte
-    if (!isVisible) {
-      visibilityMap[obj.modelId].hidden.push(obj.runtimeId);
-    } else if (isActive) {
-      visibilityMap[obj.modelId].active.push(obj.runtimeId);
-    } else {
-      visibilityMap[obj.modelId].completed.push(obj.runtimeId);
-    }
+    visibilityMap[obj.modelId][state].push(obj.runtimeId);
   });
 
   try {
     setStatus(`Oppdaterer visning for: ${currentPhaseValue}...`, 'warn');
     
     for (const mid of Object.keys(visibilityMap)) {
-      const { hidden, active, completed } = visibilityMap[mid];
+      const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
 
       if (hidden.length > 0) {
         for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
@@ -717,11 +694,20 @@ async function runPhaseSimulation(sliderIndex) {
         }
       }
 
-      if (active.length > 0) {
-        for (let i = 0; i < active.length; i += API_CHUNK_LIMIT) {
-          const chunk = active.slice(i, i + API_CHUNK_LIMIT);
+      if (active_build.length > 0) {
+        for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
+          const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
           await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
-          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, COLOR_ACTIVE);
+          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, COLOR_BUILD);
+          await new Promise(r => setTimeout(r, 30)); 
+        }
+      }
+
+      if (active_demo.length > 0) {
+        for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
+          const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
+          await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
+          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, COLOR_DEMO);
           await new Promise(r => setTimeout(r, 30)); 
         }
       }
