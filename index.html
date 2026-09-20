@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v6.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v6.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -50,7 +50,6 @@
     .filter-group select { font-family: var(--sans); font-weight: 600; font-size: 12px; background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; width: 100%; cursor: pointer; outline: none; }
     .filter-group select:disabled { opacity: 0.4; cursor: not-allowed; }
 
-    /* MULTI-SELECT STYLING (Hentet fra V2.1) */
     .multi-select { position: relative; width: 100%; user-select: none; }
     .multi-select-header { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
     .multi-select-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; max-height: 250px; overflow-y: auto; border-radius: 4px; margin-top: 4px; }
@@ -92,7 +91,7 @@
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
     <span>Excel-import og modellutvalg</span>
-    <em>v6.0</em>
+    <em>v6.1</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -136,7 +135,7 @@
     <h3>Koble modellen mot fremdriftsplan</h3>
     <ol style="text-align: left; margin: 0 auto; line-height: 1.8; font-size: 13px; padding-left: 20px;">
       <li>Trykk <strong>1. Hent modeller</strong> for å fylle listen.</li>
-      <li>Velg i listen hvilke modeller du ønsker å ta med i simuleringen (La f.eks. terreng/eksisterende bygg stå umerket hvis de bare skal være synlige hele tiden).</li>
+      <li>Velg i listen hvilke modeller du ønsker å ta med i simuleringen.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
       <li>Velg egenskaper og last opp CSV for å starte!</li>
     </ol>
@@ -223,20 +222,23 @@ async function fetchModels() {
     const nameMap = new Map();
     try {
       const resModels = await API.models.getModels();
-      const list = Array.isArray(resModels) ? resModels : (resModels?.models || resModels?.items || []);
+      const list = Array.isArray(resModels) ? resModels : (resModels?.models || resModels?.items || resModels?.data || []);
       list.forEach(m => {
-        const id = m.id || m.modelId;
-        const fn = [m.name, m.fileName, m.filename].find(v => /\.ifc/i.test(v)) || m.name;
+        const id = m.id || m.modelId || m.modelid;
+        const fn = m.name || m.fileName || m.filename || m.modelName;
         if (id && fn) nameMap.set(id, lastPathPart(fn));
       });
-    } catch(e) { console.warn("Kunne ikke hente filnavn:", e); }
+    } catch(e) { console.warn("Kunne ikke hente filnavn via API.models:", e); }
 
     const objs = await API.viewer.getObjects();
     allModels = (objs || []).map(m => {
       const mid = m.modelId || m.modelid;
+      let finalName = nameMap.get(mid) || m.name || m.modelName;
+      if (!finalName || finalName.trim() === '') finalName = 'Navnløs modell';
+      
       return { 
           id: mid, 
-          name: nameMap.get(mid) || m.name || m.modelName || 'Navnløs modell',
+          name: finalName,
           rawObjects: m.objects || [],
           objectIds: (m.objects || []).map(o => o.id || o.objectRuntimeId).filter(id => id != null)
       };
