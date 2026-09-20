@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v24.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v25.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -99,7 +99,9 @@
     table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px; }
     th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
     th { background: var(--surface2); font-family: var(--mono); }
-  </style>
+  
+.activity-planner{width:100%;max-width:1100px;background:#fff;border:1px solid var(--border);border-radius:12px;margin-bottom:20px;overflow:hidden}.ap-tabs{display:flex;background:var(--surface2);border-bottom:1px solid var(--border)}.ap-tab{padding:11px 16px;border:0;border-right:1px solid var(--border);font-weight:700;cursor:pointer}.ap-tab.active{background:#fff;color:var(--blue)}.ap-pane{display:none;padding:16px}.ap-pane.active{display:block}.ap-grid{display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:10px;align-items:end}.ap-field{display:flex;flex-direction:column;gap:5px}.ap-field label{font:600 11px var(--mono);color:var(--muted)}.ap-field input,.ap-field select{padding:7px;border:1px solid var(--border);border-radius:5px}.ap-selection{grid-column:span 3;padding:9px;background:#eff6ff;border:1px solid var(--border);border-radius:5px;font:11px var(--mono)}.ap-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.ap-table-wrap{max-height:320px;overflow:auto}.ap-table input,.ap-table select{max-width:130px;padding:4px}.gantt-wrap{overflow:auto;border:1px solid var(--border)}.gantt{min-width:850px}.g-head,.g-row{display:grid;grid-template-columns:220px 1fr;min-height:38px;border-bottom:1px solid var(--border)}.g-label{padding:10px;border-right:1px solid var(--border);font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.g-track{position:relative;background-image:linear-gradient(to right,var(--border) 1px,transparent 1px);background-size:36px 100%}.g-days{display:flex}.g-day{width:36px;flex:0 0 36px;text-align:center;padding-top:11px;font:10px var(--mono);border-right:1px solid var(--border)}.g-bar{position:absolute;top:7px;height:24px;border-radius:5px;font:700 10px var(--mono);display:flex;align-items:center;justify-content:center;cursor:grab}.g-bar.build{background:#a8d08d}.g-bar.demo{background:#ff4c4c;color:#fff}.g-handle{position:absolute;top:0;width:8px;height:100%;cursor:ew-resize}.g-handle.left{left:0}.g-handle.right{right:0}@media(max-width:800px){.ap-grid{grid-template-columns:1fr 1fr}}
+</style>
 </head>
 <body>
 
@@ -109,8 +111,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Fargelegging og byggerekkefølge rettet</span>
-    <em>v24.0</em>
+    <span>Integrert planlegger og Gantt</span>
+    <em>v25.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -166,7 +168,7 @@
     </table>
   </div>
 
-  <div class="timeline-container" id="timelineUI">
+  <section class="activity-planner"><div class="ap-tabs"><button class="ap-tab active" data-pane="apCreate">Opprett aktivitet</button><button class="ap-tab" data-pane="apList">Aktiviteter</button><button class="ap-tab" data-pane="apGantt">Gantt</button></div><div id="apCreate" class="ap-pane active"><div class="ap-grid"><div id="apSelection" class="ap-selection">Ingen objekter hentet fra 3D-utvalget.</div><button class="btn btn-secondary" id="apRead">Hent valgt utvalg</button><div class="ap-field"><label>Aktivitetsnavn</label><input id="apName" placeholder="Jordskjæring arm 1"></div><div class="ap-field"><label>Handling</label><select id="apAction"><option value="build">Bygging</option><option value="demo">Riving</option></select></div><div class="ap-field"><label>Startdag</label><input type="number" id="apStart" min="1" value="1"></div><div class="ap-field"><label>Sluttdag</label><input type="number" id="apEnd" min="1" value="1"></div><div class="ap-field"><label>Day0</label><select id="apDay0"><option value="false">Av</option><option value="true">På</option></select></div></div><div class="ap-actions"><button class="btn btn-success" id="apAdd">Legg til aktivitet</button><button class="btn btn-primary" id="apActivate">Bruk intern plan</button><span id="apStatus"></span></div></div><div id="apList" class="ap-pane"><div class="ap-actions"><button class="btn btn-secondary" id="apExport">Eksporter JSON</button><label class="btn btn-secondary" style="position:relative;overflow:hidden">Importer JSON<input id="apImport" type="file" accept=".json" style="position:absolute;inset:0;opacity:0"></label><button class="btn btn-secondary" id="apDelete">Slett alle</button></div><div class="ap-table-wrap"><table class="ap-table"><thead><tr><th>Navn</th><th>Type</th><th>Start</th><th>Slutt</th><th>Day0</th><th>Objekter</th><th></th></tr></thead><tbody id="apBody"></tbody></table></div></div><div id="apGantt" class="ap-pane"><p style="font-size:11px;margin-bottom:10px">Dra stolpene for å flytte aktivitet. Dra endene for å endre varighet.</p><div class="gantt-wrap"><div id="gantt" class="gantt"></div></div></div></section><div class="timeline-container" id="timelineUI">
     <div class="phase-display">
       <div class="phase-label">Gjeldende dato / Hendelse</div>
       <div class="phase-value" id="currentPhaseText">--</div>
@@ -490,7 +492,7 @@ $('csvFileInput').addEventListener('change', function(e) {
   reader.readAsText(file, 'ISO-8859-1'); 
 });
 
-function parseCSVAndBuildTimeline(csvText) {
+function parseCSVAndBuildTimeline(csvText) { internalPlanActive=false;
     const lines = csvText.split(/\r\n|\n|\r/).filter(l => l.trim().length > 0);
     const records = [];
     
@@ -708,206 +710,20 @@ $('phaseSlider').addEventListener('change', (e) => {
     runPhaseSimulation(e.target.value);
 });
 
-async function applyStateInChunks(modelId, runtimeIds, objectState) {
-  if (!runtimeIds || runtimeIds.length === 0) return;
-
-  const cleanIds = Array.from(new Set(runtimeIds))
-    .map(id => Number(id))
-    .filter(id => Number.isFinite(id));
-
-  for (let i = 0; i < cleanIds.length; i += API_CHUNK_LIMIT) {
-    const chunk = cleanIds.slice(i, i + API_CHUNK_LIMIT);
-    const payload = {
-      modelObjectIds: [{
-        modelId: String(modelId),
-        objectRuntimeIds: chunk
-      }]
-    };
-
-    // Farge er en del av ObjectState. Dette er den dokumenterte API-metoden.
-    await API.viewer.setObjectState(payload, objectState);
-    await new Promise(resolve => setTimeout(resolve, 40));
-  }
-}
-
-function findScheduleRule(typeVal, builtVal, demoVal) {
-  // En regel identifiseres av objekttype og verdien i enten Modell bygges
-  // eller Modell rives. Tom kolonne er ikke et positivt treff.
-  return scheduleRules.find(rule => {
-    if (rule.type !== typeVal) return false;
-
-    const buildMatch = rule.built !== '' && rule.built === builtVal;
-    const demoMatch = rule.demo !== '' && rule.demo === demoVal;
-
-    // Dersom både bygges og rives er utfylt, må begge stemme.
-    if (rule.built !== '' && rule.demo !== '') {
-      return buildMatch && demoMatch;
-    }
-
-    return buildMatch || demoMatch;
-  }) || null;
-}
-
-async function runPhaseSimulation(sliderIndexRaw) {
-  if (!API || !modelObjectsData.length || timelineSteps.length === 0) return;
-
-  if (isRendering) {
-    pendingRenderIdx = parseInt(sliderIndexRaw, 10);
-    return;
-  }
-  isRendering = true;
-
-  try {
-    const sliderIndex = parseInt(sliderIndexRaw, 10);
-    const currentPhaseValue = timelineSteps[sliderIndex];
-    const visibilityMap = {};
-    const activeActivities = {};
-
-    const propObjType = $('propObjType').value;
-    const propStart = $('propStart').value;
-    const propEnd = $('propEnd').value;
-
-    modelObjectsData.forEach(obj => {
-      const modelKey = String(obj.modelId);
-      if (!visibilityMap[modelKey]) {
-        visibilityMap[modelKey] = {
-          hidden: [],
-          active_build: [],
-          active_demo: [],
-          completed: []
-        };
-      }
-
-      const typeVal = obj.props[propObjType]
-        ? obj.props[propObjType].toString().trim().toLocaleUpperCase('nb-NO')
-        : '';
-      const builtVal = propStart && obj.props[propStart]
-        ? obj.props[propStart].toString().trim().toLocaleUpperCase('nb-NO')
-        : '';
-      const demoVal = propEnd && obj.props[propEnd]
-        ? obj.props[propEnd].toString().trim().toLocaleUpperCase('nb-NO')
-        : '';
-
-      const rule = findScheduleRule(typeVal, builtVal, demoVal);
-      const day0Visible = window.day0Lookup.get(typeVal) === true;
-      let state = 'completed';
-
-      if (!rule) {
-        // Objekter som ikke inngår i planen beholdes synlige med naturlig farge.
-        state = 'completed';
-      } else if (sliderIndex === 0) {
-        state = day0Visible ? 'completed' : 'hidden';
-      } else {
-        const isBuildRule = rule.built !== '' && rule.built === builtVal;
-        const isDemoRule = rule.demo !== '' && rule.demo === demoVal;
-        const startIdx = rule.startIdx;
-        const endIdx = rule.endIdx >= startIdx ? rule.endIdx : rule.startIdx;
-
-        if (isDemoRule && !isBuildRule) {
-          // Riveobjekt: naturlig synlig før rivestart, rødt i riveperioden,
-          // skjult etter DatoSlutt.
-          if (sliderIndex < startIdx) {
-            state = day0Visible ? 'completed' : 'hidden';
-          } else if (sliderIndex >= startIdx && sliderIndex <= endIdx) {
-            state = 'active_demo';
-          } else {
-            state = 'hidden';
-          }
-        } else if (isBuildRule) {
-          // Byggeobjekt: styres av Day0 før start, grønt fra DatoStart
-          // til og med DatoSlutt, deretter naturlig farge.
-          if (sliderIndex < startIdx) {
-            state = day0Visible ? 'completed' : 'hidden';
-          } else if (sliderIndex >= startIdx && sliderIndex <= endIdx) {
-            state = 'active_build';
-          } else {
-            state = 'completed';
-          }
-        }
-      }
-
-      visibilityMap[modelKey][state].push(obj.runtimeId);
-
-      if (state === 'active_build' || state === 'active_demo') {
-        const targetModel = allModels.find(m => String(m.id) === modelKey);
-        const modelName = targetModel ? targetModel.name : 'Ukjent modell';
-        if (!activeActivities[modelName]) {
-          activeActivities[modelName] = { build: new Set(), demo: new Set() };
-        }
-        const displayType = obj.props[propObjType]
-          ? obj.props[propObjType].toString().trim()
-          : typeVal;
-        if (state === 'active_build') activeActivities[modelName].build.add(displayType);
-        if (state === 'active_demo') activeActivities[modelName].demo.add(displayType);
-      }
-    });
-
-    const activityBox = $('activityList');
-    const activityModels = Object.keys(activeActivities);
-    if (activityModels.length === 0) {
-      activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet akkurat nå</li>';
-    } else {
-      activityBox.innerHTML = activityModels.map(modelName => {
-        const buildTags = Array.from(activeActivities[modelName].build)
-          .map(type => `<span class="badge-build">Bygges: ${type}</span>`).join('');
-        const demoTags = Array.from(activeActivities[modelName].demo)
-          .map(type => `<span class="badge-demo">Rives: ${type}</span>`).join('');
-        return `<li><div class="model-name" title="${modelName}">${modelName}</div>` +
-               `<div class="tags-container">${buildTags}${demoTags}</div></li>`;
-      }).join('');
-    }
-
-    setStatus(`⏳ Oppdaterer visning for: ${currentPhaseValue}...`, 'warn');
-
-    for (const modelId of Object.keys(visibilityMap)) {
-      const states = visibilityMap[modelId];
-
-      // Skjulte objekter får også fargen nullstilt, slik at gammel fasefarge
-      // ikke ligger igjen når objektet senere blir synlig igjen.
-      await applyStateInChunks(modelId, states.hidden, {
-        visible: false,
-        color: 'reset'
-      });
-
-      // Ferdige objekter vises med modellens naturlige/originale farge.
-      await applyStateInChunks(modelId, states.completed, {
-        visible: true,
-        color: 'reset'
-      });
-
-      // Objekter under bygging vises grønt.
-      await applyStateInChunks(modelId, states.active_build, {
-        visible: true,
-        color: COLOR_BUILD
-      });
-
-      // Objekter under riving vises rødt.
-      await applyStateInChunks(modelId, states.active_demo, {
-        visible: true,
-        color: COLOR_DEMO
-      });
-    }
-
-    if (API.viewer.refresh) {
-      try { await API.viewer.refresh(); } catch (refreshError) {
-        console.warn('Viewer refresh feilet:', refreshError);
-      }
-    }
-
-    setStatus(`✅ Viser tidspunkt: ${currentPhaseValue}`, 'ok');
-  } catch (e) {
-    console.error('Feil under 4D-oppdatering:', e);
-    setStatus('❌ Feil under 4D-oppdatering: ' + e.message, 'error');
-  } finally {
-    isRendering = false;
-    if (pendingRenderIdx !== -1) {
-      const nextIdx = pendingRenderIdx;
-      pendingRenderIdx = -1;
-      runPhaseSimulation(nextIdx);
-    }
-  }
-}
-
+let internalActivities=[],pendingSelection=[],internalPlanActive=false;const PLAN_KEY='bim4d-plan-'+location.pathname;
+function esc(v){return String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]))}
+function savePlan(){localStorage.setItem(PLAN_KEY,JSON.stringify(internalActivities));renderPlan()}
+function loadPlan(){try{internalActivities=JSON.parse(localStorage.getItem(PLAN_KEY)||'[]')}catch(e){internalActivities=[]}renderPlan()}
+document.querySelectorAll('.ap-tab').forEach(b=>b.onclick=()=>{document.querySelectorAll('.ap-tab').forEach(x=>x.classList.toggle('active',x===b));document.querySelectorAll('.ap-pane').forEach(x=>x.classList.toggle('active',x.id===b.dataset.pane));if(b.dataset.pane==='apGantt')renderGantt()});
+$('apRead').onclick=async()=>{const sel=await API.viewer.getSelection();pendingSelection=(sel||[]).map(x=>({modelId:String(x.modelId||x.modelid),runtimeIds:(x.objectIds||x.objectRuntimeIds||[]).map(Number).filter(Number.isFinite)})).filter(x=>x.modelId&&x.runtimeIds.length);const n=pendingSelection.reduce((a,x)=>a+x.runtimeIds.length,0);$('apSelection').textContent=n?`${n} objekter fra ${pendingSelection.length} modell(er)`:'Ingen objekter valgt.'};
+$('apAdd').onclick=()=>{const name=$('apName').value.trim(),start=Math.max(1,+$('apStart').value||1),end=Math.max(start,+$('apEnd').value||start);if(!name)return alert('Skriv aktivitetsnavn.');if(!pendingSelection.length)return alert('Hent valgt utvalg først.');internalActivities.push({id:crypto.randomUUID(),name,action:$('apAction').value,startDay:start,endDay:end,day0:$('apDay0').value==='true',targets:JSON.parse(JSON.stringify(pendingSelection))});savePlan();$('apName').value='';pendingSelection=[];$('apSelection').textContent='Ingen objekter hentet fra 3D-utvalget.'};
+function renderPlan(){if(!$('apBody'))return;$('apStatus').textContent=`${internalActivities.length} aktiviteter`;$('apBody').innerHTML=internalActivities.length?internalActivities.map(a=>`<tr data-id="${a.id}"><td><input data-f="name" value="${esc(a.name)}"></td><td><select data-f="action"><option value="build" ${a.action==='build'?'selected':''}>Bygging</option><option value="demo" ${a.action==='demo'?'selected':''}>Riving</option></select></td><td><input type="number" data-f="startDay" value="${a.startDay}"></td><td><input type="number" data-f="endDay" value="${a.endDay}"></td><td><input type="checkbox" data-f="day0" ${a.day0?'checked':''}></td><td>${a.targets.reduce((n,t)=>n+t.runtimeIds.length,0)}</td><td><button data-del>×</button></td></tr>`).join(''):'<tr><td colspan="7">Ingen aktiviteter</td></tr>';$('apBody').querySelectorAll('tr[data-id]').forEach(r=>{const a=internalActivities.find(x=>x.id===r.dataset.id);r.querySelectorAll('[data-f]').forEach(el=>el.onchange=()=>{const f=el.dataset.f;a[f]=f==='day0'?el.checked:(f==='startDay'||f==='endDay'?Math.max(1,+el.value||1):el.value);if(a.endDay<a.startDay)a.endDay=a.startDay;savePlan()});r.querySelector('[data-del]').onclick=()=>{internalActivities=internalActivities.filter(x=>x.id!==a.id);savePlan()}});renderGantt()}
+function renderGantt(){if(!$('gantt'))return;if(!internalActivities.length){$('gantt').innerHTML='<p style="padding:20px">Ingen aktiviteter.</p>';return}const max=Math.max(...internalActivities.map(a=>a.endDay)),days=Array.from({length:max},(_,i)=>`<div class="g-day">${i+1}</div>`).join('');$('gantt').innerHTML=`<div class="g-head"><div class="g-label"><b>Aktivitet</b></div><div class="g-days">${days}</div></div>`+internalActivities.map(a=>`<div class="g-row"><div class="g-label">${esc(a.name)}</div><div class="g-track"><div class="g-bar ${a.action}" data-id="${a.id}" style="left:${(a.startDay-1)*36}px;width:${(a.endDay-a.startDay+1)*36}px"><i class="g-handle left"></i>${a.startDay}-${a.endDay}<i class="g-handle right"></i></div></div></div>`).join('');document.querySelectorAll('.g-bar').forEach(bar=>bar.onpointerdown=e=>{const a=internalActivities.find(x=>x.id===bar.dataset.id),x=e.clientX,s=a.startDay,en=a.endDay,mode=e.target.classList.contains('left')?'l':e.target.classList.contains('right')?'r':'m';bar.setPointerCapture(e.pointerId);bar.onpointermove=ev=>{const d=Math.round((ev.clientX-x)/36);if(mode==='m'){const len=en-s;a.startDay=Math.max(1,s+d);a.endDay=a.startDay+len}else if(mode==='l')a.startDay=Math.max(1,Math.min(en,s+d));else a.endDay=Math.max(s,en+d);renderGantt()};bar.onpointerup=()=>savePlan()})}
+$('apActivate').onclick=()=>{if(!internalActivities.length)return alert('Opprett aktiviteter først.');internalPlanActive=true;const max=Math.max(...internalActivities.map(a=>a.endDay));timelineSteps=['Dag 0 (Før oppstart)'];for(let i=1;i<=max;i++)timelineSteps.push(`Dag ${i}`);$('phaseSlider').min=0;$('phaseSlider').max=max;$('phaseSlider').value=0;$('markerStart').textContent=timelineSteps[0];$('markerEnd').textContent=timelineSteps[max];$('currentPhaseText').textContent=timelineSteps[0];$('emptyState').style.display='none';$('timelineUI').style.display='flex';stopSimulation()};
+$('apExport').onclick=()=>{const b=new Blob([JSON.stringify({version:25,activities:internalActivities},null,2)],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a');a.href=u;a.download='BIM4D-plan.json';a.click();URL.revokeObjectURL(u)};$('apImport').onchange=e=>{const r=new FileReader();r.onload=x=>{const d=JSON.parse(x.target.result);internalActivities=d.activities||d;savePlan()};r.readAsText(e.target.files[0])};$('apDelete').onclick=()=>{if(confirm('Slette alle aktiviteter?')){internalActivities=[];savePlan()}};
+async function applyState(modelId,ids,state){const clean=[...new Set(ids.map(Number).filter(Number.isFinite))];for(let i=0;i<clean.length;i+=API_CHUNK_LIMIT)await API.viewer.setObjectState({modelObjectIds:[{modelId:String(modelId),objectRuntimeIds:clean.slice(i,i+API_CHUNK_LIMIT)}]},state)}
+loadPlan();
+async function runPhaseSimulation(raw){if(!API||!modelObjectsData.length||!timelineSteps.length)return;if(isRendering){pendingRenderIdx=+raw;return}isRendering=true;try{const idx=+raw,maps={},acts={},direct=new Map();if(internalPlanActive)internalActivities.forEach(a=>a.targets.forEach(t=>t.runtimeIds.forEach(id=>direct.set(`${t.modelId}:${Number(id)}`,a))));const po=$('propObjType').value,ps=$('propStart').value,pe=$('propEnd').value;modelObjectsData.forEach(o=>{const mid=String(o.modelId);maps[mid]??={hidden:[],active_build:[],active_demo:[],completed:[]};let state='completed',label='';if(internalPlanActive){const a=direct.get(`${mid}:${Number(o.runtimeId)}`);if(a){label=a.name;if(idx<a.startDay)state=a.day0?'completed':'hidden';else if(idx<=a.endDay)state=a.action==='demo'?'active_demo':'active_build';else state=a.action==='demo'?'hidden':'completed'}}else{const type=(o.props[po]||'').trim().toLocaleUpperCase('nb-NO'),built=ps?(o.props[ps]||'').trim().toLocaleUpperCase('nb-NO'):'',demo=pe?(o.props[pe]||'').trim().toLocaleUpperCase('nb-NO'):'';label=o.props[po]||type;let rule=scheduleRules.find(r=>r.type===type&&((r.built&&r.built===built)||(r.demo&&r.demo===demo)));if(rule){const day0=window.day0Lookup.get(type)===true,isDemo=rule.demo&&rule.demo===demo,end=Math.max(rule.startIdx,rule.endIdx);if(idx<rule.startIdx)state=day0?'completed':'hidden';else if(idx<=end)state=isDemo?'active_demo':'active_build';else state=isDemo?'hidden':'completed'}}maps[mid][state].push(o.runtimeId);if(state==='active_build'||state==='active_demo'){const n=allModels.find(m=>String(m.id)===mid)?.name||'Ukjent modell';acts[n]??={build:new Set(),demo:new Set()};acts[n][state==='active_build'?'build':'demo'].add(label)}});$('activityList').innerHTML=Object.keys(acts).length?Object.entries(acts).map(([n,a])=>`<li><div class="model-name">${esc(n)}</div><div class="tags-container">${[...a.build].map(x=>`<span class="badge-build">Bygges: ${esc(x)}</span>`).join('')}${[...a.demo].map(x=>`<span class="badge-demo">Rives: ${esc(x)}</span>`).join('')}</div></li>`).join(''):'<li class="no-activity">Ingen pågående aktivitet akkurat nå</li>';for(const [mid,x] of Object.entries(maps)){await applyState(mid,x.hidden,{visible:false,color:'reset'});await applyState(mid,x.completed,{visible:true,color:'reset'});await applyState(mid,x.active_build,{visible:true,color:COLOR_BUILD});await applyState(mid,x.active_demo,{visible:true,color:COLOR_DEMO})}setStatus(`✅ Viser tidspunkt: ${timelineSteps[idx]}`,'ok')}catch(e){console.error(e);setStatus('Feil: '+e.message,'error')}finally{isRendering=false;if(pendingRenderIdx!==-1){const n=pendingRenderIdx;pendingRenderIdx=-1;runPhaseSimulation(n)}}}
 async function nullstillVisning() {
     if (!API || !modelObjectsData.length) return;
     setStatus('Nullstiller 3D-visning...', 'warn');
