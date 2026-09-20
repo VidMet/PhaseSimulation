@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v6.2</title>
+  <title>BIM 4D Fremdriftsplanlegger v6.3</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -91,7 +91,7 @@
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
     <span>Excel-import og modellutvalg</span>
-    <em>v6.2</em>
+    <em>v6.3</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -220,31 +220,42 @@ async function fetchModels() {
   
   try {
     const nameMap = new Map();
+    
+    // 1. Primær metode for å takle runtime-IDs: Hent filnavn direkte fra vieweren
+    try {
+      const viewerModels = await API.viewer.getModels();
+      (viewerModels || []).forEach(m => {
+        const id = String(m.id || m.modelId);
+        const fn = m.name || m.modelName;
+        if (id && fn) nameMap.set(id, lastPathPart(fn));
+      });
+    } catch(e) { console.warn("API.viewer.getModels feilet:", e); }
+
+    // 2. Sekundær metode: Fallback til prosjekt-API (hvis vieweren ikke leverer)
     try {
       const resModels = await API.models.getModels();
       const list = Array.isArray(resModels) ? resModels : (resModels?.models || resModels?.items || resModels?.data || []);
       list.forEach(m => {
-        const id = String(m.id || m.modelId || m.modelid); // Type-sikring
+        const id = String(m.id || m.modelId || m.modelid);
         const fn = m.name || m.fileName || m.filename || m.modelName;
-        if (id && fn) nameMap.set(id, lastPathPart(fn));
+        if (id && fn && !nameMap.has(id)) nameMap.set(id, lastPathPart(fn));
       });
-    } catch(e) { console.warn("Kunne ikke hente filnavn via API.models:", e); }
+    } catch(e) { console.warn("API.models feilet:", e); }
 
     const objs = await API.viewer.getObjects();
     allModels = (objs || []).map(m => {
       const originalMid = m.modelId || m.modelid;
-      const midString = String(originalMid); // Type-sikring
+      const midString = String(originalMid);
       
       let finalName = nameMap.get(midString) || m.modelName || m.name;
       
-      // Brutal fallback: Let etter filnavn i selve rotnodene hvis alt annet feiler
+      // Siste fallback hvis navnet fremdeles er tomt
       if (!finalName || finalName.trim() === '') {
           const rootObj = (m.objects || []).find(o => o.name && o.name.trim() !== '');
           if (rootObj) finalName = rootObj.name;
       }
-
       if (!finalName || finalName.trim() === '') {
-          finalName = `Modell ${midString.substring(0,5)}...`; // Unngår "Navnløs modell" helt
+          finalName = `Ukjent modell (${midString.substring(0,5)})`;
       }
       
       return { 
