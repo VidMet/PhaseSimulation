@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v6.4</title>
+  <title>BIM 4D Fremdriftsplanlegger v6.5</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -84,6 +84,18 @@
     table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
     th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
     th { background: var(--surface2); font-family: var(--mono); }
+
+    .filter-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; width: 100%; max-width: 1000px; margin-bottom: 20px; display: none; }
+    @media (max-width: 1200px) { .filter-grid { grid-template-columns: repeat(3, 1fr); } }
+    @media (max-width: 900px) { .filter-grid { grid-template-columns: repeat(2, 1fr); } }
+    @media (max-width: 500px) { .filter-grid { grid-template-columns: 1fr; } }
+
+    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
+    .panel h3 { font-size: 13px; font-weight: 700; color: var(--blue); margin-bottom: 2px; }
+    .panel-header-dynamic { display: flex; flex-direction: column; gap: 6px; margin-bottom: 2px; }
+    .filter-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; height: 160px; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
+    .filter-item { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; cursor: pointer; padding: 4px; }
+    .filter-item input { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -94,8 +106,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Aktivitetsfarging under oppføring</span>
-    <em>v6.4</em>
+    <span>Excel-import og modellutvalg</span>
+    <em>v6.5</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -117,7 +129,7 @@
 
 <div id="filterBar">
   <div class="filter-group">
-    <label>3. Objekttype/Fase:</label>
+    <label>3. Objekttype/Fase (Excel-kobling):</label>
     <select id="propObjType" disabled><option value="">Skann først...</option></select>
   </div>
   <div class="file-upload-wrapper" style="margin-left: auto;">
@@ -132,7 +144,7 @@
     <ol style="text-align: left; margin: 0 auto; line-height: 1.8; font-size: 13px; padding-left: 20px;">
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
-      <li>Velg felles egenskap (f.eks. Fase, PNS-kode).</li>
+      <li>Velg felles egenskap (f.eks. Fase, PNS-kode). Du kan også bruke de dynamiske filtrene som dukker opp til å snevre inn utvalget ytterligere.</li>
       <li>Last opp CSV. Objekter under bygging vil farges oransje!</li>
     </ol>
     <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (3 kolonner):</p>
@@ -141,6 +153,36 @@
       <tr><td>Fase 1</td><td>01.05.2025</td><td>15.06.2025</td></tr>
       <tr><td>Fase 2</td><td>10.06.2025</td><td>14.08.2025</td></tr>
     </table>
+  </div>
+
+  <div class="filter-grid" id="filterGrid">
+    <div class="panel">
+      <div class="panel-header-dynamic">
+        <h3 style="color: var(--ink);">Valgfri egenskap (Filter 1):</h3>
+        <select id="dynamicPropSelect1"><option value="">-- Velg egenskap --</option></select>
+      </div>
+      <div class="filter-box" id="box_dynamic1">
+        <div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header-dynamic">
+        <h3 style="color: var(--ink);">Valgfri egenskap (Filter 2):</h3>
+        <select id="dynamicPropSelect2"><option value="">-- Velg egenskap --</option></select>
+      </div>
+      <div class="filter-box" id="box_dynamic2">
+        <div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-header-dynamic">
+        <h3 style="color: var(--ink);">Valgfri egenskap (Filter 3):</h3>
+        <select id="dynamicPropSelect3"><option value="">-- Velg egenskap --</option></select>
+      </div>
+      <div class="filter-box" id="box_dynamic3">
+        <div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>
+      </div>
+    </div>
   </div>
 
   <div class="timeline-container" id="timelineUI">
@@ -166,12 +208,11 @@ let modelObjectsData = [];
 let allDiscoveredProperties = new Set(); 
 
 let timelineSteps = []; 
-let buildScheduleMap = new Map(); // Nøkkel: ObjType -> { startIdx, endIdx }
+let buildScheduleMap = new Map(); 
 
 const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
 
-// Farge for "Under bygging" (Oransje)
 const COLOR_ACTIVE = { r: 255, g: 140, b: 0, a: 255 };
 
 const $ = id => document.getElementById(id);
@@ -405,7 +446,8 @@ async function scanModels() {
     populateDropdowns();
     $('csvFileInput').disabled = false;
     $('btnUpload').disabled = false;
-    setStatus(`Skanning ferdig. Klar til opplasting.`, 'ok');
+    $('filterGrid').style.display = 'grid'; // Viser de dynamiske filtrene
+    setStatus(`Skanning ferdig. Velg egenskaper og filter. Klar til opplasting.`, 'ok');
   } catch(e) { setStatus('Feil under skanning', 'error'); }
   $('btnScan').disabled = false;
 }
@@ -415,6 +457,38 @@ function populateDropdowns() {
   const baseHtml = '<option value="">-- Velg felles egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
   $('propObjType').innerHTML = baseHtml; 
   $('propObjType').disabled = false;
+
+  const dynamicHtml = '<option value="">-- Velg egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
+  
+  [1, 2, 3].forEach(i => {
+    $(`dynamicPropSelect${i}`).innerHTML = dynamicHtml;
+    $(`dynamicPropSelect${i}`).onchange = (e) => {
+      const propName = e.target.value;
+      if (!propName) {
+        $(`box_dynamic${i}`).innerHTML = '<div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>';
+        return;
+      }
+      const uniqueValues = new Set();
+      modelObjectsData.forEach(obj => {
+        uniqueValues.add(obj.props[propName] || "Mangler verdi");
+      });
+      renderFilterBox(`box_dynamic${i}`, Array.from(uniqueValues).sort(), `dynamic${i}`);
+    };
+  });
+}
+
+function renderFilterBox(elementId, values, categoryKey) {
+  const box = $(elementId);
+  if(values.length === 0) {
+    box.innerHTML = '<div style="color: var(--muted); font-size: 11px; padding:4px;">Ingen verdier funnet</div>';
+    return;
+  }
+  box.innerHTML = values.map(val => `
+    <label class="filter-item">
+      <input type="checkbox" value="${val}" data-cat="${categoryKey}" class="filter-checkbox" onchange="if(timelineSteps.length > 0) runPhaseSimulation($('phaseSlider').value)">
+      <span>${val}</span>
+    </label>
+  `).join('');
 }
 
 $('csvFileInput').addEventListener('change', function(e) {
@@ -498,32 +572,55 @@ $('phaseSlider').addEventListener('change', (e) => {
 });
 
 async function runPhaseSimulation(sliderIndex) {
-  if (!API || !modelObjectsData.length) return;
+  if (!API || !modelObjectsData.length || timelineSteps.length === 0) return;
   
   const currentPhaseValue = timelineSteps[sliderIndex];
   const visibilityMap = {};
 
   const propObjType = $('propObjType').value;
 
+  // Hent aktive dynamiske filtre
+  const activeFilters = {};
+  document.querySelectorAll('.filter-checkbox:checked').forEach(cb => {
+    const cat = cb.getAttribute('data-cat');
+    if (!activeFilters[cat]) activeFilters[cat] = new Set();
+    activeFilters[cat].add(cb.value);
+  });
+
+  const filterCategories = Object.keys(activeFilters);
+
   modelObjectsData.forEach(obj => {
     if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active: [], completed: [] };
     
+    // 1. Sjekk de dynamiske filtrene først
+    let matchesFilters = true;
+    for (const cat of filterCategories) {
+      const propKey = $(`dynamicPropSelect${cat.replace('dynamic', '')}`).value;
+      const objVal = obj.props[propKey] || "Mangler verdi";
+      if (!activeFilters[cat].has(objVal)) {
+        matchesFilters = false;
+        break;
+      }
+    }
+
+    if (!matchesFilters) {
+      visibilityMap[obj.modelId].hidden.push(obj.runtimeId);
+      return; 
+    }
+
+    // 2. Tidslinje-logikk for objektene som matcher filteret
     let typeVal = obj.props[propObjType];
     let schedule = buildScheduleMap.get(typeVal);
 
     if (schedule && schedule.startIdx !== -1 && schedule.endIdx !== -1) {
         if (sliderIndex < schedule.startIdx) {
-            // Ikke bygget enda -> Skjul
             visibilityMap[obj.modelId].hidden.push(obj.runtimeId);
         } else if (sliderIndex >= schedule.startIdx && sliderIndex < schedule.endIdx) {
-            // Under bygging -> Vis og fargelegg (Aktiv)
             visibilityMap[obj.modelId].active.push(obj.runtimeId);
         } else {
-            // Ferdig bygget -> Vis i normal farge (Fullført)
             visibilityMap[obj.modelId].completed.push(obj.runtimeId);
         }
     } else {
-        // Hvis objektet ikke har planlagt data, la det stå urørt (kontekst)
         visibilityMap[obj.modelId].completed.push(obj.runtimeId);
     }
   });
@@ -542,7 +639,6 @@ async function runPhaseSimulation(sliderIndex) {
         }
       }
       
-      // Ferdigstilte objekter vises med normal farge
       if (completed.length > 0) {
         for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
           const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
@@ -552,7 +648,6 @@ async function runPhaseSimulation(sliderIndex) {
         }
       }
 
-      // Aktive objekter vises og farges oransje
       if (active.length > 0) {
         for (let i = 0; i < active.length; i += API_CHUNK_LIMIT) {
           const chunk = active.slice(i, i + API_CHUNK_LIMIT);
@@ -587,6 +682,7 @@ async function nullstillVisning() {
         if (API.viewer.refresh) await API.viewer.refresh();
         $('csvFileInput').value = '';
         $('timelineUI').style.display = 'none';$('emptyState').style.display = 'block';
+        document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
         setStatus('Visning nullstilt', 'ok');
     } catch(e) { setStatus('Feil ved nullstilling', 'error'); }
 }
