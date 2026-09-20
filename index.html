@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v9.1</title>
+  <title>BIM 4D Fremdriftsplanlegger v9.2</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -110,8 +110,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Fargekorrigert Mediespiller</span>
-    <em>v9.1</em>
+    <span>Fargetilbakestilling løst</span>
+    <em>v9.2</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -786,12 +786,12 @@ async function runPhaseSimulation(sliderIndexRaw) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset" });
+              
+              // KORRIGERT: Legger inn color: "reset" for å fjerne overstyringen av farger[cite: 10]
+              await API.viewer.setObjectState(payload, { visible: "reset", color: "reset" });
               try {
                  if (typeof API.viewer.setObjectColor === 'function') { 
                      await API.viewer.setObjectColor(payload, null); 
-                 } else {
-                     await API.viewer.setObjectState(payload, { color: null });
                  }
               } catch(err) {}
               await new Promise(r => setTimeout(r, 30)); 
@@ -854,12 +854,11 @@ async function nullstillVisning() {
                 const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
                 const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
                 
-                await API.viewer.setObjectState(payload, { visible: "reset" });
+                // KORRIGERT: Fjerner overstyringen også her
+                await API.viewer.setObjectState(payload, { visible: "reset", color: "reset" });
                 try {
                    if (typeof API.viewer.setObjectColor === 'function') { 
                        await API.viewer.setObjectColor(payload, null); 
-                   } else {
-                       await API.viewer.setObjectState(payload, { color: null });
                    }
                 } catch(err) {}
                 await new Promise(r => setTimeout(r, 30));
