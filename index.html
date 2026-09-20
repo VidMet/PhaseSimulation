@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v8.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v8.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -105,8 +105,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Bygging og Riving med fargekoding</span>
-    <em>v8.0</em>
+    <span>Skuddsikker Fargelegging</span>
+    <em>v8.1</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -222,7 +222,7 @@ let demoMap = new Map();
 const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
 
-// Farger: Lun/lys grønn for oppføring, rød for riving
+// Farger
 const COLOR_BUILD = { r: 168, g: 208, b: 141, a: 255 }; 
 const COLOR_DEMO  = { r: 255, g: 76, b: 76, a: 255 }; 
 
@@ -476,7 +476,7 @@ function populateDropdowns() {
       }
       const uniqueValues = new Set();
       modelObjectsData.forEach(obj => { uniqueValues.add(obj.props[propName] || "Mangler verdi"); });
-      renderFilterBox(`box_dynamic${i}`, Array.from(uniqueValues).sort(), `dynamic${i}`);
+      renderFilterBox(`box_dynamic${i}`, Array.from(uniqueValues).sort((a,b) => a.localeCompare(b, 'no', {sensitivity: 'base'})), propName);
     };
   });
 }
@@ -487,6 +487,7 @@ function renderFilterBox(elementId, values, categoryKey) {
     box.innerHTML = '<div style="color: var(--muted); font-size: 11px; padding:4px;">Ingen verdier funnet</div>';
     return;
   }
+
   box.innerHTML = values.map(val => `
     <label class="filter-item">
       <input type="checkbox" value="${val}" data-cat="${categoryKey}" class="filter-checkbox" onchange="if(timelineSteps.length > 0) runPhaseSimulation($('phaseSlider').value)">
@@ -516,7 +517,6 @@ function parseCSVAndBuildTimeline(csvText) {
     const records = [];
     let missingAllDates = true;
 
-    // Forventer 5 kolonner: type, build, demo, datoStart, datoSlutt
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(/[;,]/); 
         const type = (cols[0] || '').trim();
@@ -539,7 +539,6 @@ function parseCSVAndBuildTimeline(csvText) {
         });
     }
 
-    // Samler og sorterer unike datoer
     let dateObjects = [];
     records.forEach(r => {
         [r.startStr, r.endStr].forEach(dStr => {
@@ -585,6 +584,8 @@ function parseCSVAndBuildTimeline(csvText) {
     $('emptyState').style.display = 'none';$('timelineUI').style.display = 'flex';
     
     setStatus(`Lastet inn plan. Klar til simulering.`, 'ok');
+    
+    // Trigge den første visualiseringen automatisk ved innlasting
     runPhaseSimulation(slider.value);
 }
 
@@ -595,9 +596,11 @@ $('phaseSlider').addEventListener('change', (e) => {
     runPhaseSimulation(e.target.value);
 });
 
-async function runPhaseSimulation(sliderIndex) {
+async function runPhaseSimulation(sliderIndexRaw) {
   if (!API || !modelObjectsData.length || timelineSteps.length === 0) return;
   
+  // Sikre at indexen er et heltall (string kan skape kluss i < eller > evalueringer)
+  const sliderIndex = parseInt(sliderIndexRaw, 10); 
   const currentPhaseValue = timelineSteps[sliderIndex];
   const visibilityMap = {};
 
@@ -616,7 +619,6 @@ async function runPhaseSimulation(sliderIndex) {
   modelObjectsData.forEach(obj => {
     if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active_build: [], active_demo: [], completed: [] };
     
-    // Sjekk dynamiske filtre først
     let matchesFilters = true;
     for (const cat of filterCategories) {
       const propKey = $(`dynamicPropSelect${cat.replace('dynamic', '')}`).value;
@@ -632,7 +634,6 @@ async function runPhaseSimulation(sliderIndex) {
       return; 
     }
 
-    // Tidslinje og status-logikk
     let typeVal = obj.props[propObjType] || "";
     let builtVal = propStart ? (obj.props[propStart] || "") : "";
     let demoVal = propEnd ? (obj.props[propEnd] || "") : "";
@@ -640,30 +641,28 @@ async function runPhaseSimulation(sliderIndex) {
     let bSchedule = buildMap.get(`${typeVal}|${builtVal}`);
     let dSchedule = demoMap.get(`${typeVal}|${demoVal}`);
 
-    let state = 'completed'; // Standard: eksisterende / ferdigbygd
+    let state = 'completed'; 
 
-    // 1. Byggefase
     if (builtVal !== "") {
         if (bSchedule && bSchedule.startIdx !== -1) {
             if (sliderIndex < bSchedule.startIdx) {
-                state = 'hidden'; // Ikke bygget enda
+                state = 'hidden'; 
             } else if (bSchedule.endIdx !== -1 && sliderIndex >= bSchedule.startIdx && sliderIndex < bSchedule.endIdx) {
-                state = 'active_build'; // Under oppføring
+                state = 'active_build'; 
             } else {
-                state = 'completed'; // Ferdig
+                state = 'completed'; 
             }
         } else {
             state = 'hidden'; 
         }
     }
 
-    // 2. Rivefase (Overstyrer byggestatus)
     if (demoVal !== "") {
         if (dSchedule && dSchedule.startIdx !== -1) {
             if (dSchedule.endIdx !== -1 && sliderIndex >= dSchedule.startIdx && sliderIndex < dSchedule.endIdx) {
-                state = 'active_demo'; // Under riving
+                state = 'active_demo'; 
             } else if (sliderIndex >= dSchedule.endIdx || (dSchedule.endIdx === -1 && sliderIndex >= dSchedule.startIdx)) {
-                state = 'hidden'; // Fjernet
+                state = 'hidden'; 
             }
         }
     }
@@ -688,8 +687,15 @@ async function runPhaseSimulation(sliderIndex) {
       if (completed.length > 0) {
         for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
           const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
-          await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
-          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, null);
+          const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
+          await API.viewer.setObjectState(payload, { visible: "reset" });
+          
+          // Sikkerhetsnett for fargetilbakestilling
+          try {
+             if (typeof API.viewer.setObjectColor === 'function') {
+                 await API.viewer.setObjectColor(payload, null);
+             }
+          } catch(err) { /* Ignorer hvis funksjonen ikke støttes */ }
           await new Promise(r => setTimeout(r, 30)); 
         }
       }
@@ -697,8 +703,17 @@ async function runPhaseSimulation(sliderIndex) {
       if (active_build.length > 0) {
         for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
           const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
-          await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
-          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, COLOR_BUILD);
+          const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
+          await API.viewer.setObjectState(payload, { visible: "reset" });
+          
+          // Sikkerhetsnett for fargelegging
+          try {
+             if (typeof API.viewer.setObjectColor === 'function') {
+                 await API.viewer.setObjectColor(payload, COLOR_BUILD);
+             } else {
+                 await API.viewer.setObjectState(payload, { color: COLOR_BUILD });
+             }
+          } catch(err) { console.warn('Kunne ikke fargelegge', err); }
           await new Promise(r => setTimeout(r, 30)); 
         }
       }
@@ -706,15 +721,26 @@ async function runPhaseSimulation(sliderIndex) {
       if (active_demo.length > 0) {
         for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
           const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
-          await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
-          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, COLOR_DEMO);
+          const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
+          await API.viewer.setObjectState(payload, { visible: "reset" });
+          
+          try {
+             if (typeof API.viewer.setObjectColor === 'function') {
+                 await API.viewer.setObjectColor(payload, COLOR_DEMO);
+             } else {
+                 await API.viewer.setObjectState(payload, { color: COLOR_DEMO });
+             }
+          } catch(err) { console.warn('Kunne ikke fargelegge', err); }
           await new Promise(r => setTimeout(r, 30)); 
         }
       }
     }
     if (API.viewer.refresh) try { await API.viewer.refresh(); } catch(e){}
     setStatus(`Viser tidspunkt: ${currentPhaseValue}`, 'ok');
-  } catch (e) { setStatus('Feil under 4D-oppdatering', 'error'); }
+  } catch (e) { 
+    // Legger til e.message her så vi ikke trenger gjette neste gang!
+    setStatus('Feil under 4D-oppdatering: ' + e.message, 'error'); 
+  }
 }
 
 async function nullstillVisning() {
@@ -729,8 +755,14 @@ async function nullstillVisning() {
         for (const mid in resetIds) {
             for (let i = 0; i < resetIds[mid].length; i += API_CHUNK_LIMIT) {
                 const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
-                await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
-                await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, null);
+                const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
+                
+                await API.viewer.setObjectState(payload, { visible: "reset" });
+                try {
+                   if (typeof API.viewer.setObjectColor === 'function') {
+                       await API.viewer.setObjectColor(payload, null);
+                   }
+                } catch(err) {}
                 await new Promise(r => setTimeout(r, 30));
             }
         }
@@ -739,7 +771,7 @@ async function nullstillVisning() {
         $('timelineUI').style.display = 'none';$('emptyState').style.display = 'block';
         document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
         setStatus('Visning nullstilt', 'ok');
-    } catch(e) { setStatus('Feil ved nullstilling', 'error'); }
+    } catch(e) { setStatus('Feil ved nullstilling: ' + e.message, 'error'); }
 }
 
 $('btnLoadModels').onclick = fetchModels;
