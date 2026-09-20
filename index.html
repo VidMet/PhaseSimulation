@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v6.5</title>
+  <title>BIM 4D Fremdriftsplanlegger v7.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -45,7 +45,7 @@
     #actionBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
     #filterBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 15px; align-items: flex-start; flex-shrink: 0; flex-wrap: wrap; }
     
-    .filter-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 150px; }
+    .filter-group { display: flex; flex-direction: column; gap: 6px; flex: 1; min-width: 130px; }
     .filter-group label { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; font-weight: 600; }
     .filter-group select { font-family: var(--sans); font-weight: 600; font-size: 12px; background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; width: 100%; cursor: pointer; outline: none; }
     .filter-group select:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -77,16 +77,15 @@
     
     .timeline-markers { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 10px; font-weight: 600; }
     
-    .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 600px; margin: 0 auto; }
+    .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 700px; margin: 0 auto; }
     .empty-state h3 { font-size: 15px; color: var(--blue); margin-bottom: 16px; font-weight: 700; }
     .empty-state p { font-size: 13px; margin-bottom: 16px; line-height: 1.6; }
     
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px; }
     th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
     th { background: var(--surface2); font-family: var(--mono); }
 
-    .filter-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; width: 100%; max-width: 1000px; margin-bottom: 20px; display: none; }
-    @media (max-width: 1200px) { .filter-grid { grid-template-columns: repeat(3, 1fr); } }
+    .filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%; max-width: 900px; margin-bottom: 20px; display: none; }
     @media (max-width: 900px) { .filter-grid { grid-template-columns: repeat(2, 1fr); } }
     @media (max-width: 500px) { .filter-grid { grid-template-columns: 1fr; } }
 
@@ -106,8 +105,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Excel-import og modellutvalg</span>
-    <em>v6.5</em>
+    <span>Aktivitetsfarging, riving og dynamiske filtre</span>
+    <em>v7.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -129,11 +128,19 @@
 
 <div id="filterBar">
   <div class="filter-group">
-    <label>3. Objekttype/Fase (Excel-kobling):</label>
+    <label>3. Objekttype:</label>
     <select id="propObjType" disabled><option value="">Skann først...</option></select>
   </div>
+  <div class="filter-group">
+    <label>4. Fase Bygges:</label>
+    <select id="propStart" disabled><option value="">Skann først...</option></select>
+  </div>
+  <div class="filter-group">
+    <label>5. Fase Rives:</label>
+    <select id="propEnd" disabled><option value="">Skann først...</option></select>
+  </div>
   <div class="file-upload-wrapper" style="margin-left: auto;">
-    <button class="btn btn-primary" id="btnUpload" disabled>📂 4. Last opp CSV-plan</button>
+    <button class="btn btn-primary" id="btnUpload" disabled>📂 6. Last opp CSV-plan</button>
     <input type="file" id="csvFileInput" accept=".csv" disabled>
   </div>
 </div>
@@ -144,14 +151,15 @@
     <ol style="text-align: left; margin: 0 auto; line-height: 1.8; font-size: 13px; padding-left: 20px;">
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
-      <li>Velg felles egenskap (f.eks. Fase, PNS-kode). Du kan også bruke de dynamiske filtrene som dukker opp til å snevre inn utvalget ytterligere.</li>
-      <li>Last opp CSV. Objekter under bygging vil farges oransje!</li>
+      <li>Velg egenskapene for Objekttype, Fase Bygges og Fase Rives. Du kan la Fase Bygges være tom hvis objektet skal vises fra start (eks. terreng).</li>
+      <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt.</li>
+      <li>Last opp din CSV/Excel-fil for å starte simuleringen!</li>
     </ol>
-    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (3 kolonner):</p>
+    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
     <table>
-      <tr><th>Objekttype</th><th>Byggestart</th><th>Byggeslutt</th></tr>
-      <tr><td>Fase 1</td><td>01.05.2025</td><td>15.06.2025</td></tr>
-      <tr><td>Fase 2</td><td>10.06.2025</td><td>14.08.2025</td></tr>
+      <tr><th>Objekttype</th><th>Fase Bygges</th><th>Fase Rives</th><th>Byggestart</th><th>Byggeslutt</th><th>Rivedato (Valgfri)</th></tr>
+      <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>01.05.2025</td><td>15.05.2025</td><td></td></tr>
+      <tr><td>Skjæring</td><td></td><td>Fase 2</td><td></td><td></td><td>01.06.2025</td></tr>
     </table>
   </div>
 
@@ -208,11 +216,11 @@ let modelObjectsData = [];
 let allDiscoveredProperties = new Set(); 
 
 let timelineSteps = []; 
-let buildScheduleMap = new Map(); 
+let buildMap = new Map(); 
+let demoMap = new Map();  
 
 const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
-
 const COLOR_ACTIVE = { r: 255, g: 140, b: 0, a: 255 };
 
 const $ = id => document.getElementById(id);
@@ -290,7 +298,6 @@ async function fetchModels() {
       const midString = String(originalMid);
       
       let finalName = nameMap.get(midString) || m.modelName || m.name;
-      
       if (!finalName || finalName.trim() === '') {
           const rootObj = (m.objects || []).find(o => o.name && o.name.trim() !== '');
           if (rootObj) finalName = rootObj.name;
@@ -309,17 +316,13 @@ async function fetchModels() {
       <label class="special-option"><input type="checkbox" value="ALL_MODELS" class="model-cb" id="cbAllModels"> 🌍 Skann ALLE modeller i visningen</label>
       <label class="special-option"><input type="checkbox" value="SELECTED_OBJECTS" class="model-cb" id="cbSelectedObjects"> 🎯 Skann KUN valgte objekter i 3D</label>
     `;
-    
-    allModels.forEach(m => {
-      html += `<label><input type="checkbox" value="${m.id}" class="model-cb standard-model-cb" checked> ${m.name}</label>`;
-    });
-    
+    allModels.forEach(m => { html += `<label><input type="checkbox" value="${m.id}" class="model-cb standard-model-cb" checked> ${m.name}</label>`; });
     $('modelSelectDropdown').innerHTML = html;
     
     const oppdaterHeader = () => {
-        if ($('cbSelectedObjects').checked) {$('modelSelectHeader').textContent = '🎯 KUN valgte objekter skannes ▼';
-        } else if ($('cbAllModels').checked) {$('modelSelectHeader').textContent = '🌍 ALLE modeller skannes ▼';
-        } else {
+        if ($('cbSelectedObjects').checked)$('modelSelectHeader').textContent = '🎯 KUN valgte objekter skannes ▼';
+        else if ($('cbAllModels').checked)$('modelSelectHeader').textContent = '🌍 ALLE modeller skannes ▼';
+        else {
             const checked = document.querySelectorAll('.standard-model-cb:checked').length;
             $('modelSelectHeader').textContent = `${checked} modeller inkludert ▼`;
         }
@@ -386,7 +389,6 @@ async function scanModels() {
             setStatus('Ingen modeller valgt.', 'error');
             $('btnScan').disabled = false; return;
         }
-        
         allModels.forEach(m => {
             if ($('cbAllModels').checked || selectedModelIds.includes(String(m.id))) {
                 let allExpandedIds = [];
@@ -446,7 +448,7 @@ async function scanModels() {
     populateDropdowns();
     $('csvFileInput').disabled = false;
     $('btnUpload').disabled = false;
-    $('filterGrid').style.display = 'grid'; // Viser de dynamiske filtrene
+    $('filterGrid').style.display = 'grid'; 
     setStatus(`Skanning ferdig. Velg egenskaper og filter. Klar til opplasting.`, 'ok');
   } catch(e) { setStatus('Feil under skanning', 'error'); }
   $('btnScan').disabled = false;
@@ -454,14 +456,15 @@ async function scanModels() {
 
 function populateDropdowns() {
   const options = Array.from(allDiscoveredProperties).sort((a,b) => a.localeCompare(b, 'no', {sensitivity: 'base'}));
-  const baseHtml = '<option value="">-- Velg felles egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
-  $('propObjType').innerHTML = baseHtml; 
-  $('propObjType').disabled = false;
-
-  const dynamicHtml = '<option value="">-- Velg egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
+  const baseHtml = '<option value="">-- Velg egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
+  const optionalHtml = '<option value="">-- Tom (Ignorer) --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
   
+  $('propObjType').innerHTML = baseHtml; $('propObjType').disabled = false;
+  $('propStart').innerHTML = optionalHtml; $('propStart').disabled = false;
+  $('propEnd').innerHTML = optionalHtml; $('propEnd').disabled = false;
+
   [1, 2, 3].forEach(i => {
-    $(`dynamicPropSelect${i}`).innerHTML = dynamicHtml;
+    $(`dynamicPropSelect${i}`).innerHTML = baseHtml;
     $(`dynamicPropSelect${i}`).onchange = (e) => {
       const propName = e.target.value;
       if (!propName) {
@@ -469,9 +472,7 @@ function populateDropdowns() {
         return;
       }
       const uniqueValues = new Set();
-      modelObjectsData.forEach(obj => {
-        uniqueValues.add(obj.props[propName] || "Mangler verdi");
-      });
+      modelObjectsData.forEach(obj => { uniqueValues.add(obj.props[propName] || "Mangler verdi"); });
       renderFilterBox(`box_dynamic${i}`, Array.from(uniqueValues).sort(), `dynamic${i}`);
     };
   });
@@ -497,7 +498,7 @@ $('csvFileInput').addEventListener('change', function(e) {
 
   const propObjType = $('propObjType').value;
   if (!propObjType) {
-    alert("Du må velge felles egenskap (f.eks. Fase) før du laster opp filen!");
+    alert("Du må i det minste velge egenskap for Objekttype før du laster opp filen!");
     this.value = '';
     return;
   }
@@ -510,44 +511,76 @@ $('csvFileInput').addEventListener('change', function(e) {
 function parseCSVAndBuildTimeline(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
     const records = [];
+    let missingAllDates = true;
 
+    // Henter inn fra opp til 6 kolonner
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(/[;,]/); 
         const type = (cols[0] || '').trim();
-        const startStr = (cols[1] || '').trim();
-        const endStr = (cols[2] || '').trim();
+        const built = (cols[1] || '').trim();
+        const demo = (cols[2] || '').trim();
+        const startStr = (cols[3] || '').trim();
+        const endStr = (cols[4] || '').trim();
+        const demoStr = (cols[5] || '').trim();
 
-        if (type && startStr && endStr) {
-            records.push({ type, dateStr: startStr, isStart: true });
-            records.push({ type, dateStr: endStr, isStart: false });
+        if (startStr || endStr || demoStr) missingAllDates = false;
+        
+        if (type && (built || demo)) {
+            records.push({ type, built, demo, startStr, endStr, demoStr });
         }
     }
 
-    records.forEach((r, idx) => {
-        let parts = r.dateStr.split('.');
-        if (parts.length === 3) {
-            r.sortVal = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
-        } else {
-            r.sortVal = new Date(r.dateStr).getTime() || idx;
-        }
-    });
+    if (missingAllDates) {
+        records.forEach((r, idx) => { 
+            if (r.built) {
+                r.startStr = `Dag ${idx * 3 + 1}`; 
+                r.endStr = `Dag ${idx * 3 + 2}`;
+            }
+            if (r.demo) r.demoStr = `Dag ${idx * 3 + 3}`;
+        });
+    }
 
-    records.sort((a,b) => a.sortVal - b.sortVal);
+    // Samler og sorterer unike datoer
+    let dateObjects = [];
+    records.forEach(r => {
+        [r.startStr, r.endStr, r.demoStr].forEach(dStr => {
+            if (dStr && !dateObjects.find(d => d.str === dStr)) {
+                let sortVal = 0;
+                if (dStr.startsWith('Dag ')) {
+                    sortVal = parseInt(dStr.replace('Dag ', ''));
+                } else {
+                    let parts = dStr.split('.');
+                    if (parts.length === 3) {
+                        sortVal = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+                    } else {
+                        sortVal = new Date(dStr).getTime() || 0;
+                    }
+                }
+                dateObjects.push({ str: dStr, sortVal });
+            }
+        });
+    });
     
-    timelineSteps = []; 
-    buildScheduleMap.clear();
+    dateObjects.sort((a,b) => a.sortVal - b.sortVal);
+    timelineSteps = dateObjects.map(d => d.str);
+
+    buildMap.clear(); 
+    demoMap.clear();
 
     records.forEach(r => {
-        if (!timelineSteps.includes(r.dateStr)) timelineSteps.push(r.dateStr);
-    });
+        if (r.type && r.built) {
+            buildMap.set(`${r.type}|${r.built}`, {
+                startIdx: r.startStr ? timelineSteps.indexOf(r.startStr) : -1,
+                endIdx: r.endStr ? timelineSteps.indexOf(r.endStr) : -1
+            });
+        }
+        if (r.type && r.demo) {
+            let dIdx = -1;
+            if (r.demoStr) dIdx = timelineSteps.indexOf(r.demoStr);
+            else if (r.startStr) dIdx = timelineSteps.indexOf(r.startStr);
 
-    records.forEach(r => {
-        const stepIdx = timelineSteps.indexOf(r.dateStr);
-        if (!buildScheduleMap.has(r.type)) buildScheduleMap.set(r.type, { startIdx: -1, endIdx: -1 });
-        
-        const schedule = buildScheduleMap.get(r.type);
-        if (r.isStart) schedule.startIdx = stepIdx;
-        else schedule.endIdx = stepIdx;
+            demoMap.set(`${r.type}|${r.demo}`, { demoIdx: dIdx });
+        }
     });
 
     if (timelineSteps.length === 0) return alert("Fant ingen gyldige data i filen.");
@@ -578,21 +611,21 @@ async function runPhaseSimulation(sliderIndex) {
   const visibilityMap = {};
 
   const propObjType = $('propObjType').value;
+  const propStart = $('propStart').value;
+  const propEnd = $('propEnd').value;
 
-  // Hent aktive dynamiske filtre
   const activeFilters = {};
   document.querySelectorAll('.filter-checkbox:checked').forEach(cb => {
     const cat = cb.getAttribute('data-cat');
     if (!activeFilters[cat]) activeFilters[cat] = new Set();
     activeFilters[cat].add(cb.value);
   });
-
   const filterCategories = Object.keys(activeFilters);
 
   modelObjectsData.forEach(obj => {
     if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active: [], completed: [] };
     
-    // 1. Sjekk de dynamiske filtrene først
+    // 1. Sjekk dynamiske filtre først
     let matchesFilters = true;
     for (const cat of filterCategories) {
       const propKey = $(`dynamicPropSelect${cat.replace('dynamic', '')}`).value;
@@ -608,20 +641,56 @@ async function runPhaseSimulation(sliderIndex) {
       return; 
     }
 
-    // 2. Tidslinje-logikk for objektene som matcher filteret
-    let typeVal = obj.props[propObjType];
-    let schedule = buildScheduleMap.get(typeVal);
+    // 2. Livssyklus og Tidslinje-logikk
+    let typeVal = obj.props[propObjType] || "";
+    let builtVal = propStart ? (obj.props[propStart] || "") : "";
+    let demoVal = propEnd ? (obj.props[propEnd] || "") : "";
 
-    if (schedule && schedule.startIdx !== -1 && schedule.endIdx !== -1) {
-        if (sliderIndex < schedule.startIdx) {
-            visibilityMap[obj.modelId].hidden.push(obj.runtimeId);
-        } else if (sliderIndex >= schedule.startIdx && sliderIndex < schedule.endIdx) {
-            visibilityMap[obj.modelId].active.push(obj.runtimeId);
-        } else {
-            visibilityMap[obj.modelId].completed.push(obj.runtimeId);
-        }
+    let bSchedule = buildMap.get(`${typeVal}|${builtVal}`);
+    let dSchedule = demoMap.get(`${typeVal}|${demoVal}`);
+
+    let sIdx = bSchedule ? bSchedule.startIdx : -1;
+    let eIdx = bSchedule ? bSchedule.endIdx : -1;
+    let dIdx = dSchedule ? dSchedule.demoIdx : -1;
+
+    let isVisible = false;
+    let isActive = false;
+
+    // A: Oppføring - Hvis Fase Bygges er blank, er objektet synlig fra start
+    if (builtVal === "") {
+        isVisible = true; 
+        isActive = false;
     } else {
-        visibilityMap[obj.modelId].completed.push(obj.runtimeId);
+        if (bSchedule) {
+            if (sIdx !== -1 && sliderIndex >= sIdx && (eIdx === -1 || sliderIndex <= eIdx)) {
+                isVisible = true;
+                isActive = true; // Objekt er under bygging
+            } else if (eIdx !== -1 && sliderIndex > eIdx) {
+                isVisible = true;
+                isActive = false; // Ferdigstilt
+            } else if (sIdx === -1) {
+                isVisible = true; // Kontekst / eksisterende
+            }
+        } else {
+            isVisible = true; // Vises som kontekst dersom den mangler i planen
+        }
+    }
+
+    // B: Riving - Hvis vi har passert rivedato, skjul objektet igjen
+    if (demoVal !== "" && dIdx !== -1) {
+        if (sliderIndex >= dIdx) {
+            isVisible = false;
+            isActive = false;
+        }
+    }
+
+    // Sortér i riktig rendering-bøtte
+    if (!isVisible) {
+      visibilityMap[obj.modelId].hidden.push(obj.runtimeId);
+    } else if (isActive) {
+      visibilityMap[obj.modelId].active.push(obj.runtimeId);
+    } else {
+      visibilityMap[obj.modelId].completed.push(obj.runtimeId);
     }
   });
 
