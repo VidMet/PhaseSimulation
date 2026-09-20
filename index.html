@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v13.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v14.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Diskrete hendelser & Dyp arvelogikk</span>
-    <em>v13.0</em>
+    <span>Konkrete dager & Fargefeil løst</span>
+    <em>v14.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -167,6 +167,7 @@
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
       <li>Velg egenskapene for Objekttype, Modell bygges og Modell rives.</li>
+      <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt/fag.</li>
       <li>Last opp din CSV/Excel-fil. Bruk mediespilleren for å bygge modellen!</li>
     </ol>
     <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
@@ -254,8 +255,9 @@ let buildMap = new Map();
 let demoMap = new Map();  
 let day0Map = new Map();
 
+// Tvinger chunking ned til 1000 for garantert fullføring og ekskluderer IFCSITE fra ignore-listen
 const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
-const API_CHUNK_LIMIT = 2000; 
+const API_CHUNK_LIMIT = 1000; 
 
 const COLOR_BUILD = { r: 168, g: 208, b: 141, a: 255 }; 
 const COLOR_DEMO  = { r: 255, g: 76, b: 76, a: 255 }; 
@@ -470,13 +472,10 @@ async function scanModels() {
       tempObjectsDataMap.forEach((obj, runtimeId) => {
         let currentParentId = childToParentMap.get(runtimeId);
         let depth = 0;
-        // KORRIGERT: Økt klatredybde til 50 nivåer for at dyp geometri skal fange opp egenskapene sine!
-        while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 50) {
+        while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 10) {
           const parentObj = tempObjectsDataMap.get(currentParentId);
           for (const key in parentObj.props) {
-            if (!obj.props[key]) {
-              obj.props[key] = parentObj.props[key];
-            }
+            if (!obj.props[key]) obj.props[key] = parentObj.props[key];
           }
           currentParentId = childToParentMap.get(currentParentId);
           depth++;
@@ -553,7 +552,7 @@ function parseCSVAndBuildTimeline(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
     const records = [];
     
-    // KORRIGERT: Identifiser separator (semikolon, komma, tab) for å overleve Excel-eksport
+    // Identifiserer separator for å tåle alle Excel-eksporter
     const header = lines[0];
     let sep = ';';
     const commas = (header.match(/,/g) || []).length;
@@ -562,8 +561,8 @@ function parseCSVAndBuildTimeline(csvText) {
     if (tabs > commas && tabs > semis) sep = '\t';
     else if (commas > semis && commas > tabs) sep = ',';
 
-    // Renser teksten for eventuelle fnutter fra Excel
-    const clean = str => (str || '').replace(/(^"|"$)/g, '').trim();
+    // Renser teksten og tvinger alt til Store Bokstaver for 100% sikker matching
+    const clean = str => (str || '').replace(/(^"|"$)/g, '').trim().toUpperCase();
 
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(sep); 
@@ -572,14 +571,15 @@ function parseCSVAndBuildTimeline(csvText) {
         const demo = clean(cols[2]);
         const startStr = clean(cols[3]);
         const endStr = clean(cols[4]);
-        const day0Str = clean(cols[5]).toUpperCase(); 
+        const day0Str = clean(cols[5]); 
 
         if (type && (built || demo || day0Str)) {
             records.push({ type, built, demo, startStr, endStr, day0Str });
         }
     }
 
-    // KORRIGERT: Samler unike dato-strenger direkte, ingen generering av blanke dager!
+    // 1. FJERNET GENERERING AV TOMME MELLOMDAGER
+    // Trekker kun ut eksakte datoer som faktisk finnes i filen
     let dateObjects = [];
     records.forEach(r => {
         [r.startStr, r.endStr].forEach(dStr => {
@@ -596,7 +596,7 @@ function parseCSVAndBuildTimeline(csvText) {
                             sortVal = parseInt(numMatch.join(''), 10);
                         }
                     } else {
-                        sortVal = parseInt(numMatch[0], 10);
+                        sortVal = parseInt(numMatch.join(''), 10);
                     }
                 } else {
                     sortVal = dStr.charCodeAt(0);
@@ -607,7 +607,6 @@ function parseCSVAndBuildTimeline(csvText) {
     });
     
     dateObjects.sort((a,b) => a.sortVal - b.sortVal);
-    
     timelineSteps = ["Dag 0 (Før oppstart)"].concat(dateObjects.map(d => d.str));
 
     buildMap.clear(); 
@@ -767,9 +766,10 @@ async function runPhaseSimulation(sliderIndexRaw) {
           return; 
         }
 
-        let typeVal = obj.props[propObjType] ? obj.props[propObjType].trim() : "";
-        let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].trim() : "";
-        let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].trim() : "";
+        // 3. SKUDDSIKKER MATCHING MED TOUPPERCASE()
+        let typeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim().toUpperCase() : "";
+        let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].toString().trim().toUpperCase() : "";
+        let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toUpperCase() : "";
 
         let bSchedule = buildMap.get(`${typeVal}|${builtVal}`);
         let dSchedule = demoMap.get(`${typeVal}|${demoVal}`);
@@ -818,8 +818,10 @@ async function runPhaseSimulation(sliderIndexRaw) {
             const mName = targetModel ? targetModel.name : "Ukjent modell";
             if (!activeActivities[mName]) activeActivities[mName] = { build: new Set(), demo: new Set() };
             
-            if (state === 'active_build') activeActivities[mName].build.add(typeVal);
-            if (state === 'active_demo') activeActivities[mName].demo.add(typeVal);
+            // Bruker originalverdien fra objektet for penere visning i boksen
+            const displayTypeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim() : typeVal;
+            if (state === 'active_build') activeActivities[mName].build.add(displayTypeVal);
+            if (state === 'active_demo') activeActivities[mName].demo.add(displayTypeVal);
         }
       });
 
@@ -847,7 +849,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
             for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
               const chunk = hidden.slice(i, i + API_CHUNK_LIMIT);
               await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: false });
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
           
@@ -855,11 +857,14 @@ async function runPhaseSimulation(sliderIndexRaw) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset", color: "reset" });
+              
+              // 2. FJERNET color: "reset" (som krasjet synligheten tidligere)
+              await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
                  if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
+                 else { await API.viewer.setObjectState(payload, { color: null }); }
               } catch(err) {}
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
@@ -872,7 +877,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
                  if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, COLOR_BUILD); }
                  else { await API.viewer.setObjectState(payload, { color: COLOR_BUILD }); }
               } catch(err) {}
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
@@ -885,7 +890,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
                  if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, COLOR_DEMO); }
                  else { await API.viewer.setObjectState(payload, { color: COLOR_DEMO }); }
               } catch(err) {}
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
       }
@@ -919,13 +924,12 @@ async function nullstillVisning() {
                 const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
                 const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
                 
-                await API.viewer.setObjectState(payload, { visible: "reset", color: "reset" });
+                await API.viewer.setObjectState(payload, { visible: "reset" });
                 try {
-                   if (typeof API.viewer.setObjectColor === 'function') { 
-                       await API.viewer.setObjectColor(payload, null); 
-                   }
+                   if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
+                   else { await API.viewer.setObjectState(payload, { color: null }); }
                 } catch(err) {}
-                await new Promise(r => setTimeout(r, 30));
+                await new Promise(r => setTimeout(r, 40));
             }
         }
         if (API.viewer.refresh) await API.viewer.refresh();
