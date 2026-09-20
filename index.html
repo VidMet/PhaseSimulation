@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v5.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v6.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -40,6 +40,7 @@
     .btn:not(:disabled):hover { opacity: .85; }
     .btn-primary { background: var(--blue); color: #ffffff; }
     .btn-secondary { background: var(--surface2); color: var(--ink); border: 1px solid var(--border); margin-left: 4px; }
+    .btn-success { background: var(--green); color: #ffffff; }
     
     #actionBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 10px 16px; display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap; }
     #filterBar { background: var(--surface); border-bottom: 1px solid var(--border); padding: 12px 16px; display: flex; gap: 15px; align-items: flex-start; flex-shrink: 0; flex-wrap: wrap; }
@@ -48,6 +49,14 @@
     .filter-group label { font-size: 11px; color: var(--muted); font-family: var(--mono); white-space: nowrap; font-weight: 600; }
     .filter-group select { font-family: var(--sans); font-weight: 600; font-size: 12px; background: var(--bg); color: var(--ink); border: 1px solid var(--border); border-radius: 4px; padding: 6px 8px; width: 100%; cursor: pointer; outline: none; }
     .filter-group select:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    /* MULTI-SELECT STYLING (Hentet fra V2.1) */
+    .multi-select { position: relative; width: 100%; user-select: none; }
+    .multi-select-header { font-family: var(--mono); font-size: 12px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; padding: 6px 10px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-weight: 600; }
+    .multi-select-dropdown { display: none; position: absolute; top: 100%; left: 0; right: 0; background: var(--surface); border: 1px solid var(--border); box-shadow: 0 4px 12px rgba(0,0,0,0.15); z-index: 100; max-height: 250px; overflow-y: auto; border-radius: 4px; margin-top: 4px; }
+    .multi-select-dropdown label { display: flex; align-items: center; padding: 8px 10px; cursor: pointer; font-size: 11px; font-family: var(--mono); border-bottom: 1px solid var(--surface2); }
+    .multi-select-dropdown input { margin-right: 8px; cursor: pointer; }
+    .multi-select-dropdown .special-option { font-weight: 700; color: var(--blue); border-bottom: 2px solid var(--border); background: var(--surface-alt); }
 
     .file-upload-wrapper { position: relative; overflow: hidden; display: inline-block; margin-top: 14px;}
     .file-upload-wrapper input[type=file] { font-size: 100px; position: absolute; left: 0; top: 0; opacity: 0; cursor: pointer; }
@@ -68,13 +77,10 @@
     input[type=range]::-webkit-slider-thumb:hover { transform: scale(1.1); background: #eff6ff; }
     
     .timeline-markers { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 10px; font-weight: 600; }
+    
     .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 600px; margin: 0 auto; }
     .empty-state h3 { font-size: 15px; color: var(--blue); margin-bottom: 16px; font-weight: 700; }
     .empty-state p { font-size: 13px; margin-bottom: 16px; line-height: 1.6; }
-    
-    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
-    th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
-    th { background: var(--surface2); font-family: var(--mono); }
   </style>
 </head>
 <body>
@@ -85,8 +91,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Excel/CSV import for tidslinje</span>
-    <em>v5.0</em>
+    <span>Excel-import og modellutvalg</span>
+    <em>v6.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -95,25 +101,32 @@
 </header>
 
 <div id="actionBar">
-  <button class="btn btn-primary" id="btnLoad" disabled>▶ Last inn modeller</button>
+  <button class="btn btn-primary" id="btnLoadModels">1. Hent modeller</button>
+  <div style="flex: 1; max-width: 400px; margin-left: 10px;">
+    <div class="multi-select" id="modelSelectGroup">
+      <div class="multi-select-header" id="modelSelectHeader" onclick="toggleDropdown()" style="opacity: 0.5;">Venter på innlasting ▼</div>
+      <div class="multi-select-dropdown" id="modelSelectDropdown"></div>
+    </div>
+  </div>
+  <button class="btn btn-success" id="btnScan" disabled>2. Skann utvalg</button>
   <button class="btn btn-secondary" id="btnReset" disabled>↺ Nullstill visning</button>
 </div>
 
 <div id="filterBar">
   <div class="filter-group">
-    <label>1. Egenskap for Objekttype:</label>
-    <select id="propObjType" disabled><option value="">Skann modeller først...</option></select>
+    <label>3. Objekttype:</label>
+    <select id="propObjType" disabled><option value="">Skann først...</option></select>
   </div>
   <div class="filter-group">
-    <label>2. Egenskap for Fase Bygges:</label>
-    <select id="propStart" disabled><option value="">Skann modeller først...</option></select>
+    <label>4. Fase Bygges:</label>
+    <select id="propStart" disabled><option value="">Skann først...</option></select>
   </div>
   <div class="filter-group">
-    <label>3. Egenskap for Fase Rives (Valgfri):</label>
-    <select id="propEnd" disabled><option value="">Skann modeller først...</option></select>
+    <label>5. Fase Rives (Valgfri):</label>
+    <select id="propEnd" disabled><option value="">Skann først...</option></select>
   </div>
   <div class="file-upload-wrapper">
-    <button class="btn btn-primary" id="btnUpload" disabled>📂 Last opp CSV-plan</button>
+    <button class="btn btn-primary" id="btnUpload" disabled>📂 6. Last opp CSV-plan</button>
     <input type="file" id="csvFileInput" accept=".csv" disabled>
   </div>
 </div>
@@ -121,19 +134,12 @@
 <main id="mainContent">
   <div class="empty-state" id="emptyState">
     <h3>Koble modellen mot fremdriftsplan</h3>
-    <p>Slik fungerer det:</p>
     <ol style="text-align: left; margin: 0 auto; line-height: 1.8; font-size: 13px; padding-left: 20px;">
-      <li>Trykk <strong>Last inn modeller</strong> for å skanne prosjektet (slå av "Spøkelsesmodus").</li>
-      <li>Velg hvilke egenskaper i modellen som skal knyttes mot kolonnene i regnearket ditt.</li>
-      <li>Lagre fremdriftsplanen din (Excel) som en <strong>.CSV</strong> fil (kommadelt) og last den opp her.</li>
+      <li>Trykk <strong>1. Hent modeller</strong> for å fylle listen.</li>
+      <li>Velg i listen hvilke modeller du ønsker å ta med i simuleringen (La f.eks. terreng/eksisterende bygg stå umerket hvis de bare skal være synlige hele tiden).</li>
+      <li>Trykk <strong>2. Skann utvalg</strong>.</li>
+      <li>Velg egenskaper og last opp CSV for å starte!</li>
     </ol>
-    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (4 kolonner):</p>
-    <table>
-      <tr><th>Objekttype</th><th>Fase Bygges</th><th>Fase Rives</th><th>Dato</th></tr>
-      <tr><td>PNS 21000</td><td>Fase 1</td><td></td><td>01.05.2025</td></tr>
-      <tr><td>PNS 21000</td><td></td><td>Fase 2</td><td>14.08.2025</td></tr>
-      <tr><td>VA-Kum</td><td>Trinn A</td><td></td><td><em>(Kan stå tom)</em></td></tr>
-    </table>
   </div>
 
   <div class="timeline-container" id="timelineUI">
@@ -154,15 +160,15 @@
 
 <script>
 let API = null;
+let allModels = [];
 let modelObjectsData = []; 
 let allDiscoveredProperties = new Set(); 
 
-// Fremdriftsdata
 let timelineSteps = []; 
-let buildMap = new Map(); // Nøkkel: ObjType|FaseBygges -> Index i timelineSteps
-let demoMap = new Map();  // Nøkkel: ObjType|FaseRives -> Index i timelineSteps
+let buildMap = new Map(); 
+let demoMap = new Map();  
 
-const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
+const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
 
 const $ = id => document.getElementById(id);
@@ -170,6 +176,12 @@ const setStatus = (txt, type='normal') => {
   $('statusText').textContent = txt; 
   $('statusIndicator').className = 'dot ' + (type==='ok' ? 'live' : type==='error' ? 'error' : type==='warn' ? 'warn' : '');
 };
+const lastPathPart = (v) => (v || '').split('/').pop().split('\\').pop();
+
+function toggleDropdown() {
+    const el = $('modelSelectDropdown');
+    el.style.display = el.style.display === 'block' ? 'none' : 'block';
+}
 
 function getIfcType(obj){
     const s = (obj.class || obj.className || obj.type || obj.ifcType || obj.ifcEntity || '').toString().trim().toUpperCase();
@@ -198,34 +210,139 @@ function buildHierarchyMap(obj, parentId = null, map) {
 async function connect(){
   try {
     API = await window.TrimbleConnectWorkspace.connect(window.parent);
-    $('btnLoad').disabled = false;
     setStatus('Klar til bruk', 'ok');
   } catch(e) { setStatus('Frakoblet', 'error'); }
 }
 
+async function fetchModels() {
+  if (!API) return;
+  $('btnLoadModels').disabled = true;
+  setStatus('Henter modeller...', 'warn');
+  
+  try {
+    const nameMap = new Map();
+    try {
+      const resModels = await API.models.getModels();
+      const list = Array.isArray(resModels) ? resModels : (resModels?.models || resModels?.items || []);
+      list.forEach(m => {
+        const id = m.id || m.modelId;
+        const fn = [m.name, m.fileName, m.filename].find(v => /\.ifc/i.test(v)) || m.name;
+        if (id && fn) nameMap.set(id, lastPathPart(fn));
+      });
+    } catch(e) { console.warn("Kunne ikke hente filnavn:", e); }
+
+    const objs = await API.viewer.getObjects();
+    allModels = (objs || []).map(m => {
+      const mid = m.modelId || m.modelid;
+      return { 
+          id: mid, 
+          name: nameMap.get(mid) || m.name || m.modelName || 'Navnløs modell',
+          rawObjects: m.objects || [],
+          objectIds: (m.objects || []).map(o => o.id || o.objectRuntimeId).filter(id => id != null)
+      };
+    }).filter(m => m.objectIds.length > 0);
+    
+    let html = `
+      <label class="special-option"><input type="checkbox" value="ALL_MODELS" class="model-cb" id="cbAllModels"> 🌍 Skann ALLE modeller i visningen</label>
+      <label class="special-option"><input type="checkbox" value="SELECTED_OBJECTS" class="model-cb" id="cbSelectedObjects"> 🎯 Skann KUN valgte objekter i 3D</label>
+    `;
+    
+    allModels.forEach(m => {
+      html += `<label><input type="checkbox" value="${m.id}" class="model-cb standard-model-cb" checked> ${m.name}</label>`;
+    });
+    
+    $('modelSelectDropdown').innerHTML = html;
+    
+    const oppdaterHeader = () => {
+        if ($('cbSelectedObjects').checked) {$('modelSelectHeader').textContent = '🎯 KUN valgte objekter skannes ▼';
+        } else if ($('cbAllModels').checked) {$('modelSelectHeader').textContent = '🌍 ALLE modeller skannes ▼';
+        } else {
+            const checked = document.querySelectorAll('.standard-model-cb:checked').length;
+            $('modelSelectHeader').textContent = `${checked} modeller inkludert ▼`;
+        }
+    };
+    
+    document.querySelectorAll('.model-cb').forEach(cb => {
+        cb.addEventListener('change', (e) => {
+            if(e.target.id === 'cbAllModels' && e.target.checked) {
+                $('cbSelectedObjects').checked = false;
+                document.querySelectorAll('.standard-model-cb').forEach(c => c.checked = true);
+            } else if (e.target.id === 'cbSelectedObjects' && e.target.checked) {
+                $('cbAllModels').checked = false;
+                document.querySelectorAll('.standard-model-cb').forEach(c => c.checked = false);
+            } else if (e.target.classList.contains('standard-model-cb')) {
+                $('cbAllModels').checked = false;
+                $('cbSelectedObjects').checked = false;
+            }
+            oppdaterHeader();
+        });
+    });
+    
+    oppdaterHeader();
+    $('modelSelectHeader').style.opacity = '1';$('btnScan').disabled = false;
+    $('btnReset').disabled = false;
+    setStatus('Modeller klare. Velg utvalg og trykk Skann.', 'ok');
+  } catch (e) {
+    setStatus('Feil ved modellhenting', 'error');
+  }
+}
+
 async function scanModels() {
-  $('btnLoad').disabled = true;
-  setStatus('Skanner modeller...', 'warn');
+  if (!API) return;
+  $('btnScan').disabled = true;
+  setStatus('Skanner...', 'warn');
   modelObjectsData = [];
   allDiscoveredProperties.clear();
 
   try {
-    const objs = await API.viewer.getObjects();
-    const activeModels = (objs || []).filter(m => m.objects && m.objects.length > 0);
-    if (activeModels.length === 0) return setStatus('Ingen objekter funnet', 'error');
-
     let chunksToProcess = [];
-    activeModels.forEach(m => {
-      let allExpandedIds = [];
-      m.objects.forEach(rawO => { allExpandedIds = allExpandedIds.concat(getAllRuntimeIds(rawO)); });
-      chunksToProcess.push({ modelId: m.modelId || m.modelid, objectIds: Array.from(new Set(allExpandedIds)), rawObjects: m.objects });
-    });
+    let isSelectionMode = $('cbSelectedObjects') &&$('cbSelectedObjects').checked;
+    
+    if (isSelectionMode) {
+        const selection = await API.viewer.getSelection();
+        if (!selection || selection.length === 0) {
+            setStatus('⚠️ Ingen objekter er valgt i 3D-vieweren.', 'error');
+            $('btnScan').disabled = false; return;
+        }
+        selection.forEach(sel => {
+            const mid = sel.modelId || sel.modelid;
+            const ids = (sel.objectIds || sel.objectRuntimeIds || []);
+            if (mid && ids.length > 0) {
+                let allExpandedIds = [...ids];
+                const targetModel = allModels.find(m => m.id === mid);
+                if (targetModel) {
+                    targetModel.rawObjects.forEach(rawO => {
+                        const rId = rawO.id || rawO.objectRuntimeId;
+                        if (ids.includes(rId)) { allExpandedIds = allExpandedIds.concat(getAllRuntimeIds(rawO)); }
+                    });
+                }
+                chunksToProcess.push({ modelId: mid, objectIds: Array.from(new Set(allExpandedIds)) });
+            }
+        });
+    } else {
+        const selectedModelIds = Array.from(document.querySelectorAll('.standard-model-cb:checked')).map(cb => cb.value);
+        if (selectedModelIds.length === 0 && !$('cbAllModels').checked) {
+            setStatus('Ingen modeller valgt.', 'error');
+            $('btnScan').disabled = false; return;
+        }
+        
+        allModels.forEach(m => {
+            if ($('cbAllModels').checked || selectedModelIds.includes(m.id)) {
+                let allExpandedIds = [];
+                m.rawObjects.forEach(rawO => { allExpandedIds = allExpandedIds.concat(getAllRuntimeIds(rawO)); });
+                chunksToProcess.push({ modelId: m.id, objectIds: Array.from(new Set(allExpandedIds)) });
+            }
+        });
+    }
+
+    if (chunksToProcess.length === 0) return setStatus('Feil: Ingen data å skanne', 'error');
 
     for (const chunkGroup of chunksToProcess) {
       const mid = chunkGroup.modelId;
       const ids = chunkGroup.objectIds;
       const childToParentMap = new Map();
-      chunkGroup.rawObjects.forEach(rawO => buildHierarchyMap(rawO, null, childToParentMap));
+      const targetModel = allModels.find(m => m.id === mid);
+      if (targetModel) targetModel.rawObjects.forEach(rawO => buildHierarchyMap(rawO, null, childToParentMap));
 
       const tempObjectsDataMap = new Map();
       ids.forEach(id => { tempObjectsDataMap.set(id, { modelId: mid, runtimeId: id, isIgnored: false, props: {} }); });
@@ -266,12 +383,11 @@ async function scanModels() {
     }
 
     populateDropdowns();
-    $('btnReset').disabled = false;
     $('csvFileInput').disabled = false;
     $('btnUpload').disabled = false;
-    setStatus('Skanning ferdig. Velg egenskaper og last opp CSV.', 'ok');
+    setStatus(`Skanning ferdig for valgt utvalg. ${modelObjectsData.length} geometri-noder funnet.`, 'ok');
   } catch(e) { setStatus('Feil under skanning', 'error'); }
-  $('btnLoad').disabled = false;
+  $('btnScan').disabled = false;
 }
 
 function populateDropdowns() {
@@ -284,7 +400,6 @@ function populateDropdowns() {
   $('propEnd').innerHTML = optionalHtml; $('propEnd').disabled = false;
 }
 
-// Lese og parse CSV
 $('csvFileInput').addEventListener('change', function(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -299,11 +414,8 @@ $('csvFileInput').addEventListener('change', function(e) {
   }
 
   const reader = new FileReader();
-  reader.onload = function(event) {
-    const text = event.target.result;
-    parseCSVAndBuildTimeline(text);
-  };
-  reader.readAsText(file, 'UTF-8'); // Antar UTF-8. 
+  reader.onload = function(event) { parseCSVAndBuildTimeline(event.target.result); };
+  reader.readAsText(file, 'UTF-8'); 
 });
 
 function parseCSVAndBuildTimeline(csvText) {
@@ -311,28 +423,20 @@ function parseCSVAndBuildTimeline(csvText) {
     const records = [];
     let missingAllDates = true;
 
-    // Hopper over rad 1 (header)
     for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(/[;,]/); // Støtter både komma og semikolon
+        const cols = lines[i].split(/[;,]/); 
         const type = (cols[0] || '').trim();
         const built = (cols[1] || '').trim();
         const demo = (cols[2] || '').trim();
         const dateStr = (cols[3] || '').trim();
 
         if (dateStr) missingAllDates = false;
-        if (type && (built || demo)) {
-            records.push({ type, built, demo, dateStr, originalIndex: i });
-        }
+        if (type && (built || demo)) records.push({ type, built, demo, dateStr, originalIndex: i });
     }
 
-    // Manglende datoer genererer "Dag X" pr linje som foreslått
     if (missingAllDates) {
-        records.forEach((r, idx) => {
-            r.dateStr = `Dag ${idx + 1}`;
-            r.sortVal = idx;
-        });
+        records.forEach((r, idx) => { r.dateStr = `Dag ${idx + 1}`; r.sortVal = idx; });
     } else {
-        // Enkel sorteringsmekanisme for dato (hvis dd.mm.yyyy, reverser for sortering)
         records.forEach((r, idx) => {
             if (!r.dateStr) { r.sortVal = 9999999999999; return; }
             let parts = r.dateStr.split('.');
@@ -345,30 +449,19 @@ function parseCSVAndBuildTimeline(csvText) {
     }
 
     records.sort((a,b) => a.sortVal - b.sortVal);
-
-    // Bygg unike dato-steg
-    timelineSteps = [];
-    buildMap.clear();
-    demoMap.clear();
+    timelineSteps = []; buildMap.clear(); demoMap.clear();
 
     records.forEach(r => {
         if (!timelineSteps.includes(r.dateStr)) timelineSteps.push(r.dateStr);
         let stepIdx = timelineSteps.indexOf(r.dateStr);
-
         if (r.type && r.built) buildMap.set(`${r.type}|${r.built}`, stepIdx);
         if (r.type && r.demo) demoMap.set(`${r.type}|${r.demo}`, stepIdx);
     });
 
-    if (timelineSteps.length === 0) {
-        alert("Fant ingen gyldige data i filen.");
-        return;
-    }
+    if (timelineSteps.length === 0) return alert("Fant ingen gyldige data i filen.");
 
-    // Klargjør Slider
     const slider = $('phaseSlider');
-    slider.min = 0; 
-    slider.max = timelineSteps.length - 1; 
-    slider.value = timelineSteps.length - 1; 
+    slider.min = 0; slider.max = timelineSteps.length - 1; slider.value = timelineSteps.length - 1; 
 
     $('markerStart').textContent = timelineSteps[0];
     $('markerEnd').textContent = timelineSteps[timelineSteps.length - 1];$('currentPhaseText').textContent = timelineSteps[slider.value];
@@ -399,8 +492,7 @@ async function runPhaseSimulation(sliderIndex) {
   modelObjectsData.forEach(obj => {
     if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { show: [], hide: [] };
     
-    let isVisible = true; // Objekter uten match i planen forblir synlige som kontekst
-    
+    let isVisible = true; 
     let typeVal = obj.props[propObjType];
     let builtVal = obj.props[propStart];
     let demoVal = propEnd ? obj.props[propEnd] : null;
@@ -414,10 +506,10 @@ async function runPhaseSimulation(sliderIndex) {
 
         if (bIdx !== -1) {
             if (sliderIndex < bIdx) {
-                isVisible = false; // Ikke bygget enda
+                isVisible = false; 
             } else {
                 if (dIdx !== -1 && sliderIndex >= dIdx) {
-                    isVisible = false; // Er bygget, men nå revet
+                    isVisible = false; 
                 }
             }
         }
@@ -440,7 +532,7 @@ async function runPhaseSimulation(sliderIndex) {
         for (let i = 0; i < hide.length; i += API_CHUNK_LIMIT) {
           const chunk = hide.slice(i, i + API_CHUNK_LIMIT);
           await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: false });
-          await new Promise(r => setTimeout(r, 30)); // Sikrer at API svelger datamengden[cite: 3]
+          await new Promise(r => setTimeout(r, 30)); 
         }
       }
       if (show.length > 0) {
@@ -478,7 +570,8 @@ async function nullstillVisning() {
     } catch(e) { setStatus('Feil ved nullstilling', 'error'); }
 }
 
-$('btnLoad').onclick = scanModels;
+$('btnLoadModels').onclick = fetchModels;
+$('btnScan').onclick = scanModels;
 $('btnReset').onclick = nullstillVisning;
 
 connect();
