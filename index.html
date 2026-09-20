@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v9.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v9.1</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -110,8 +110,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Mediespiller, Dag 0 og Fargekoding</span>
-    <em>v9.0</em>
+    <span>Fargekorrigert Mediespiller</span>
+    <em>v9.1</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -583,7 +583,6 @@ function parseCSVAndBuildTimeline(csvText) {
     
     dateObjects.sort((a,b) => a.sortVal - b.sortVal);
     
-    // Sett inn "Dag 0" før selve byggefasen starter
     timelineSteps = ["Dag 0 (Før oppstart)"];
     timelineSteps = timelineSteps.concat(dateObjects.map(d => d.str));
 
@@ -602,7 +601,7 @@ function parseCSVAndBuildTimeline(csvText) {
 
     const slider = $('phaseSlider');
     slider.min = 0; slider.max = timelineSteps.length - 1; 
-    slider.value = 0; // Begynner alltid på Dag 0
+    slider.value = 0; 
 
     $('markerStart').textContent = timelineSteps[0];
     $('markerEnd').textContent = timelineSteps[timelineSteps.length - 1];$('currentPhaseText').textContent = timelineSteps[slider.value];
@@ -610,10 +609,9 @@ function parseCSVAndBuildTimeline(csvText) {
     $('emptyState').style.display = 'none';$('timelineUI').style.display = 'flex';
     
     setStatus(`Lastet inn plan. Starter på Dag 0.`, 'ok');
-    stopSimulation(); // Setter visningen til Dag 0
+    stopSimulation(); 
 }
 
-// LÅSEMOTOR OG MEDIESPILLER
 let isPlaying = false;
 let isRendering = false;
 let pendingRenderIdx = -1;
@@ -648,9 +646,9 @@ async function playNextStep() {
         $('phaseSlider').value = nextIdx;
         $('currentPhaseText').textContent = timelineSteps[nextIdx];
         
-        await runPhaseSimulation(nextIdx); // Venter på at 3D-motoren tegner
+        await runPhaseSimulation(nextIdx); 
         
-        if (!isPlaying) return; // Sjekk om brukeren trykket pause i mellomtiden
+        if (!isPlaying) return; 
         let speedMs = parseFloat($('speedInput').value) * 1000;
         playTimeout = setTimeout(playNextStep, speedMs);
     } else {
@@ -790,7 +788,11 @@ async function runPhaseSimulation(sliderIndexRaw) {
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
               await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
-                 if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
+                 if (typeof API.viewer.setObjectColor === 'function') { 
+                     await API.viewer.setObjectColor(payload, null); 
+                 } else {
+                     await API.viewer.setObjectState(payload, { color: null });
+                 }
               } catch(err) {}
               await new Promise(r => setTimeout(r, 30)); 
             }
@@ -829,7 +831,6 @@ async function runPhaseSimulation(sliderIndexRaw) {
       setStatus('❌ Feil under 4D-oppdatering: ' + e.message, 'error'); 
   } finally {
       isRendering = false;
-      // Hvis vi mottok en ny beskjed mens vi jobbet, kjør den nå!
       if (pendingRenderIdx !== -1) {
           let nextIdx = pendingRenderIdx;
           pendingRenderIdx = -1;
@@ -855,7 +856,11 @@ async function nullstillVisning() {
                 
                 await API.viewer.setObjectState(payload, { visible: "reset" });
                 try {
-                   if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
+                   if (typeof API.viewer.setObjectColor === 'function') { 
+                       await API.viewer.setObjectColor(payload, null); 
+                   } else {
+                       await API.viewer.setObjectState(payload, { color: null });
+                   }
                 } catch(err) {}
                 await new Promise(r => setTimeout(r, 30));
             }
