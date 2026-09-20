@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v19.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v21.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Skuddsikker State & Typer</span>
-    <em>v19.0</em>
+    <span>ÆØÅ og Excel CSV Fikset</span>
+    <em>v21.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -253,6 +253,7 @@ let allDiscoveredProperties = new Set();
 let timelineSteps = []; 
 let scheduleRules = [];
 
+// Sikrer at IFCSITE (terreng) leses riktig, for å fange grøfteskråninger
 const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 1000; 
 
@@ -469,6 +470,7 @@ async function scanModels() {
       tempObjectsDataMap.forEach((obj, runtimeId) => {
         let currentParentId = childToParentMap.get(runtimeId);
         let depth = 0;
+        // Klatrer dypere opp i treet for å fange grøfteskråninger!
         while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 50) {
           const parentObj = tempObjectsDataMap.get(currentParentId);
           for (const key in parentObj.props) {
@@ -530,7 +532,6 @@ function renderFilterBox(elementId, values, categoryKey) {
     </label>
   `).join('');
 
-  // Sørg for at filterendringer trigger oppdatering uten å krasje
   box.querySelectorAll('.filter-checkbox').forEach(cb => {
     cb.addEventListener('change', () => {
         if(timelineSteps && timelineSteps.length > 0) {
@@ -567,11 +568,12 @@ $('csvFileInput').addEventListener('change', function(e) {
 
   const reader = new FileReader();
   reader.onload = function(event) { parseCSVAndBuildTimeline(event.target.result); };
-  reader.readAsText(file, 'UTF-8'); 
+  // Løsning: Leser filen i ISO-8859-1 for å støtte særnorske tegn og Microsoft Excel
+  reader.readAsText(file, 'ISO-8859-1'); 
 });
 
 function parseCSVAndBuildTimeline(csvText) {
-    const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
+    const lines = csvText.split(/\r\n|\n|\r/).filter(l => l.trim().length > 0);
     const records = [];
     
     const header = lines[0];
@@ -582,7 +584,8 @@ function parseCSVAndBuildTimeline(csvText) {
     if (tabs > commas && tabs > semis) sep = '\t';
     else if (commas > semis && commas > tabs) sep = ',';
 
-    const clean = str => (str || '').replace(/(^"|"$)/g, '').trim().toUpperCase();
+    // Løsning: Bruker toLocaleUpperCase('nb-NO') for å respektere æ, ø og å
+    const clean = str => (str || '').replace(/(^"|"$)/g, '').trim().toLocaleUpperCase('nb-NO');
 
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(sep); 
@@ -600,8 +603,8 @@ function parseCSVAndBuildTimeline(csvText) {
 
     let isRelative = false;
     records.forEach(r => {
-        if ((r.startStr && r.startStr.toLowerCase().startsWith('dag')) || 
-            (r.endStr && r.endStr.toLowerCase().startsWith('dag'))) {
+        if ((r.startStr && r.startStr.toLocaleLowerCase('nb-NO').startsWith('dag')) || 
+            (r.endStr && r.endStr.toLocaleLowerCase('nb-NO').startsWith('dag'))) {
             isRelative = true;
         }
     });
@@ -609,12 +612,13 @@ function parseCSVAndBuildTimeline(csvText) {
     timelineSteps = ["Dag 0 (Før oppstart)"];
     let day0Map = new Map();
 
+    // GENERERER KONTINUERLIGE DAGER FOR Å UNNGÅ TOMROM
     if (isRelative) {
         let minDag = Infinity, maxDag = -Infinity;
         records.forEach(r => {
             [r.startStr, r.endStr].forEach(str => {
-                if (str && str.toLowerCase().startsWith('dag')) {
-                    let num = parseInt(str.toLowerCase().replace(/[^\d]/g, ''), 10);
+                if (str && str.toLocaleLowerCase('nb-NO').startsWith('dag')) {
+                    let num = parseInt(str.toLocaleLowerCase('nb-NO').replace(/[^\d]/g, ''), 10);
                     if (!isNaN(num)) {
                         if (num < minDag) minDag = num;
                         if (num > maxDag) maxDag = num;
@@ -630,11 +634,11 @@ function parseCSVAndBuildTimeline(csvText) {
         }
 
         records.forEach(r => {
-            if (r.startStr && r.startStr.toLowerCase().startsWith('dag')) {
-                r.startStr = `Dag ${parseInt(r.startStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
+            if (r.startStr && r.startStr.toLocaleLowerCase('nb-NO').startsWith('dag')) {
+                r.startStr = `Dag ${parseInt(r.startStr.toLocaleLowerCase('nb-NO').replace(/[^\d]/g, ''), 10)}`;
             }
-            if (r.endStr && r.endStr.toLowerCase().startsWith('dag')) {
-                r.endStr = `Dag ${parseInt(r.endStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
+            if (r.endStr && r.endStr.toLocaleLowerCase('nb-NO').startsWith('dag')) {
+                r.endStr = `Dag ${parseInt(r.endStr.toLocaleLowerCase('nb-NO').replace(/[^\d]/g, ''), 10)}`;
             }
         });
     } else {
@@ -833,9 +837,10 @@ async function runPhaseSimulation(sliderIndexRaw) {
           return; 
         }
 
-        let typeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim().toUpperCase() : "";
-        let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].toString().trim().toUpperCase() : "";
-        let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toUpperCase() : "";
+        // Løsning: Bruker toLocaleUpperCase('nb-NO') for modell-egenskapene også
+        let typeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim().toLocaleUpperCase('nb-NO') : "";
+        let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].toString().trim().toLocaleUpperCase('nb-NO') : "";
+        let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toLocaleUpperCase('nb-NO') : "";
 
         let state = 'hidden'; 
         let isDay0 = window.day0Lookup.get(typeVal) === true;
@@ -846,18 +851,19 @@ async function runPhaseSimulation(sliderIndexRaw) {
 
         scheduleRules.forEach(r => {
             if (r.type === typeVal) {
-                hasRule = true;
-                if (r.built !== "" && r.built === builtVal) { bStart = r.startIdx; bEnd = r.endIdx; }
-                if (r.built === "" && builtVal === "") { 
-                    if (r.demo === "" || (r.demo !== "" && r.demo === demoVal)) {
-                        if (r.demo === "" && r.startIdx !== -1) { bStart = r.startIdx; bEnd = r.endIdx; }
-                    }
+                // Sjekk om regelen gjelder for byggefasen
+                let matchBuild = (r.built === "" && builtVal === "") || (r.built !== "" && r.built === builtVal);
+                // Sjekk om regelen gjelder for rivefasen
+                let matchDemo = (r.demo === "" && demoVal === "") || (r.demo !== "" && r.demo === demoVal);
+
+                if (matchBuild || matchDemo) {
+                    hasRule = true;
+                    if (matchBuild && r.built !== "") { bStart = r.startIdx; bEnd = r.endIdx; }
+                    if (matchDemo && r.demo !== "") { dStart = r.startIdx; dEnd = r.endIdx; }
                 }
-                if (r.demo !== "" && r.demo === demoVal) { dStart = r.startIdx; dEnd = r.endIdx; }
             }
         });
 
-        // Uplanlagte objekter forblir synlige med mindre spesifikt filtrert bort
         if (!hasRule && !window.day0Lookup.has(typeVal)) {
             state = 'completed';
         } else {
@@ -913,11 +919,11 @@ async function runPhaseSimulation(sliderIndexRaw) {
           const stringModelId = String(mid);
           const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
 
-          // 1. Skjul det som skal skjules
+          // 1. Skjul det som skal skjules trygt (Bruker KUN visible: false)
           if (hidden.length > 0) {
             for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
-              const numericChunk = hidden.slice(i, i + API_CHUNK_LIMIT).map(id => parseInt(id, 10));
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: numericChunk }] };
+              const chunk = hidden.slice(i, i + API_CHUNK_LIMIT); 
+              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
               
               try {
                   await API.viewer.setObjectState(payload, { visible: false });
@@ -926,14 +932,15 @@ async function runPhaseSimulation(sliderIndexRaw) {
             }
           }
           
-          // 2. Vis ferdige objekter og nullstill fargen i en og samme operasjon
+          // 2. Vis ferdige objekter trygt (Bruker KUN visible: "reset")
           if (completed.length > 0) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
-              const numericChunk = completed.slice(i, i + API_CHUNK_LIMIT).map(id => parseInt(id, 10));
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: numericChunk }] };
+              const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
+              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
               
               try {
-                  await API.viewer.setObjectState(payload, { visible: true, color: "reset" });
+                  await API.viewer.setObjectState(payload, { visible: "reset" });
+                  try { await API.viewer.setObjectColor(payload, null); } catch(err){}
               } catch(err) { console.error("Feil ved visning/fargenullstilling:", err); }
               await new Promise(r => setTimeout(r, 40)); 
             }
@@ -942,11 +949,12 @@ async function runPhaseSimulation(sliderIndexRaw) {
           // 3. Vis og fargelegg aktive bygge-objekter
           if (active_build.length > 0) {
             for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
-              const numericChunk = active_build.slice(i, i + API_CHUNK_LIMIT).map(id => parseInt(id, 10));
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: numericChunk }] };
+              const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
+              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
               
               try {
-                  await API.viewer.setObjectState(payload, { visible: true, color: COLOR_BUILD });
+                  await API.viewer.setObjectState(payload, { visible: "reset" });
+                  try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(err){}
               } catch(err) { console.error("Feil ved grønn fargelegging:", err); }
               await new Promise(r => setTimeout(r, 40)); 
             }
@@ -955,11 +963,12 @@ async function runPhaseSimulation(sliderIndexRaw) {
           // 4. Vis og fargelegg aktive rive-objekter
           if (active_demo.length > 0) {
             for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
-              const numericChunk = active_demo.slice(i, i + API_CHUNK_LIMIT).map(id => parseInt(id, 10));
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: numericChunk }] };
+              const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
+              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
               
               try {
-                  await API.viewer.setObjectState(payload, { visible: true, color: COLOR_DEMO });
+                  await API.viewer.setObjectState(payload, { visible: "reset" });
+                  try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(err){}
               } catch(err) { console.error("Feil ved rød fargelegging:", err); }
               await new Promise(r => setTimeout(r, 40)); 
             }
@@ -994,11 +1003,12 @@ async function nullstillVisning() {
         for (const mid in resetIds) {
             const stringModelId = String(mid);
             for (let i = 0; i < resetIds[mid].length; i += API_CHUNK_LIMIT) {
-                const numericChunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT).map(id => parseInt(id, 10));
-                const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: numericChunk }] };
+                const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
+                const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
                 
                 try {
-                    await API.viewer.setObjectState(payload, { visible: true, color: "reset" });
+                    await API.viewer.setObjectState(payload, { visible: "reset" });
+                    try { await API.viewer.setObjectColor(payload, null); } catch(err){}
                 } catch(err) { console.error("Feil ved nullstilling:", err); }
                 await new Promise(r => setTimeout(r, 40));
             }
