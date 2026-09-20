@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v14.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v15.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Konkrete dager & Fargefeil løst</span>
-    <em>v14.0</em>
+    <span>Sømløse dager og komplett logikk</span>
+    <em>v15.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -251,13 +251,10 @@ let modelObjectsData = [];
 let allDiscoveredProperties = new Set(); 
 
 let timelineSteps = []; 
-let buildMap = new Map(); 
-let demoMap = new Map();  
-let day0Map = new Map();
+let scheduleRules = [];
 
-// Tvinger chunking ned til 1000 for garantert fullføring og ekskluderer IFCSITE fra ignore-listen
 const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
-const API_CHUNK_LIMIT = 1000; 
+const API_CHUNK_LIMIT = 2000; 
 
 const COLOR_BUILD = { r: 168, g: 208, b: 141, a: 255 }; 
 const COLOR_DEMO  = { r: 255, g: 76, b: 76, a: 255 }; 
@@ -472,10 +469,12 @@ async function scanModels() {
       tempObjectsDataMap.forEach((obj, runtimeId) => {
         let currentParentId = childToParentMap.get(runtimeId);
         let depth = 0;
-        while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 10) {
+        while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 50) {
           const parentObj = tempObjectsDataMap.get(currentParentId);
           for (const key in parentObj.props) {
-            if (!obj.props[key]) obj.props[key] = parentObj.props[key];
+            if (!obj.props[key]) {
+              obj.props[key] = parentObj.props[key];
+            }
           }
           currentParentId = childToParentMap.get(currentParentId);
           depth++;
@@ -532,6 +531,20 @@ function renderFilterBox(elementId, values, categoryKey) {
   `).join('');
 }
 
+function parseDateObj(dStr) {
+  if (!dStr) return null;
+  let parts = dStr.split(/[\.\-\/]/);
+  if (parts.length === 3) {
+      if (parts[0].length === 4) return new Date(parts[0], parts[1]-1, parts[2]);
+      else return new Date(parts[2], parts[1]-1, parts[0]);
+  }
+  return new Date(dStr);
+}
+
+function formatDateObj(d) {
+   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth()+1).padStart(2, '0')}.${d.getFullYear()}`;
+}
+
 $('csvFileInput').addEventListener('change', function(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -552,7 +565,6 @@ function parseCSVAndBuildTimeline(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
     const records = [];
     
-    // Identifiserer separator for å tåle alle Excel-eksporter
     const header = lines[0];
     let sep = ';';
     const commas = (header.match(/,/g) || []).length;
@@ -561,7 +573,6 @@ function parseCSVAndBuildTimeline(csvText) {
     if (tabs > commas && tabs > semis) sep = '\t';
     else if (commas > semis && commas > tabs) sep = ',';
 
-    // Renser teksten og tvinger alt til Store Bokstaver for 100% sikker matching
     const clean = str => (str || '').replace(/(^"|"$)/g, '').trim().toUpperCase();
 
     for (let i = 1; i < lines.length; i++) {
@@ -578,55 +589,91 @@ function parseCSVAndBuildTimeline(csvText) {
         }
     }
 
-    // 1. FJERNET GENERERING AV TOMME MELLOMDAGER
-    // Trekker kun ut eksakte datoer som faktisk finnes i filen
-    let dateObjects = [];
+    let isRelative = false;
     records.forEach(r => {
-        [r.startStr, r.endStr].forEach(dStr => {
-            if (dStr && !dateObjects.find(d => d.str === dStr)) {
-                let sortVal = 0;
-                let numMatch = dStr.match(/\d+/g);
-                if (numMatch) {
-                    if (dStr.includes('.')) {
-                        let parts = dStr.split('.');
-                        if (parts.length === 3) {
-                            if (parts[0].length === 4) sortVal = parseInt(parts[0]+parts[1]+parts[2], 10);
-                            else sortVal = parseInt(parts[2]+parts[1]+parts[0], 10);
-                        } else {
-                            sortVal = parseInt(numMatch.join(''), 10);
-                        }
-                    } else {
-                        sortVal = parseInt(numMatch.join(''), 10);
+        if ((r.startStr && r.startStr.toLowerCase().startsWith('dag')) || 
+            (r.endStr && r.endStr.toLowerCase().startsWith('dag'))) {
+            isRelative = true;
+        }
+    });
+
+    timelineSteps = ["Dag 0 (Før oppstart)"];
+
+    if (isRelative) {
+        let minDag = Infinity, maxDag = -Infinity;
+        records.forEach(r => {
+            [r.startStr, r.endStr].forEach(str => {
+                if (str && str.toLowerCase().startsWith('dag')) {
+                    let num = parseInt(str.toLowerCase().replace(/[^\d]/g, ''), 10);
+                    if (!isNaN(num)) {
+                        if (num < minDag) minDag = num;
+                        if (num > maxDag) maxDag = num;
                     }
-                } else {
-                    sortVal = dStr.charCodeAt(0);
                 }
-                dateObjects.push({ str: dStr, sortVal });
+            });
+        });
+        
+        if (minDag === Infinity) minDag = 1;
+        if (maxDag === -Infinity) maxDag = 1;
+
+        // Fyller inn hver eneste dag sømløst
+        for (let i = minDag; i <= maxDag; i++) {
+            timelineSteps.push(`Dag ${i}`);
+        }
+
+        records.forEach(r => {
+            if (r.startStr && r.startStr.toLowerCase().startsWith('dag')) {
+                r.startStr = `Dag ${parseInt(r.startStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
+            }
+            if (r.endStr && r.endStr.toLowerCase().startsWith('dag')) {
+                r.endStr = `Dag ${parseInt(r.endStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
             }
         });
-    });
-    
-    dateObjects.sort((a,b) => a.sortVal - b.sortVal);
-    timelineSteps = ["Dag 0 (Før oppstart)"].concat(dateObjects.map(d => d.str));
-
-    buildMap.clear(); 
-    demoMap.clear();
-    day0Map.clear();
-
-    records.forEach(r => {
-        let sIdx = r.startStr ? timelineSteps.indexOf(r.startStr) : -1;
-        let eIdx = r.endStr ? timelineSteps.indexOf(r.endStr) : -1;
-
-        if (r.type) {
-            if (r.built) buildMap.set(`${r.type}|${r.built}`, { startIdx: sIdx, endIdx: eIdx });
-            if (r.demo) demoMap.set(`${r.type}|${r.demo}`, { startIdx: sIdx, endIdx: eIdx });
-            
-            if (r.day0Str === 'TRUE' || r.day0Str === 'SANN' || r.day0Str === '1') {
-                day0Map.set(r.type, true);
-            } else if (r.day0Str === 'FALSE' || r.day0Str === 'USANN' || r.day0Str === '0') {
-                day0Map.set(r.type, false);
+    } else {
+        let minTime = Infinity, maxTime = -Infinity;
+        records.forEach(r => {
+            [r.startStr, r.endStr].forEach(dStr => {
+               if (dStr) {
+                  let time = parseDateObj(dStr).getTime();
+                  if (!isNaN(time)) {
+                      if (time < minTime) minTime = time;
+                      if (time > maxTime) maxTime = time;
+                  }
+               }
+            });
+        });
+        
+        if (minTime !== Infinity && maxTime !== -Infinity) {
+            let current = new Date(minTime);
+            let end = new Date(maxTime);
+            while (current <= end) {
+                timelineSteps.push(formatDateObj(current));
+                current.setDate(current.getDate() + 1);
             }
         }
+        
+        records.forEach(r => {
+           if(r.startStr) {
+               let time = parseDateObj(r.startStr).getTime();
+               if(!isNaN(time)) r.startStr = formatDateObj(new Date(time));
+           }
+           if(r.endStr) {
+               let time = parseDateObj(r.endStr).getTime();
+               if(!isNaN(time)) r.endStr = formatDateObj(new Date(time));
+           }
+        });
+    }
+
+    scheduleRules = [];
+    records.forEach(r => {
+        scheduleRules.push({
+            type: r.type,
+            built: r.built,
+            demo: r.demo,
+            startIdx: r.startStr ? timelineSteps.indexOf(r.startStr) : -1,
+            endIdx: r.endStr ? timelineSteps.indexOf(r.endStr) : -1,
+            day0: r.day0Str === 'TRUE' || r.day0Str === 'SANN' || r.day0Str === '1'
+        });
     });
 
     if (timelineSteps.length <= 1) return alert("Fant ingen gyldige data i filen.");
@@ -640,7 +687,7 @@ function parseCSVAndBuildTimeline(csvText) {
     
     $('emptyState').style.display = 'none';$('timelineUI').style.display = 'flex';
     
-    setStatus(`Lastet inn plan med ${timelineSteps.length - 1} unike hendelser. Starter på Dag 0.`, 'ok');
+    setStatus(`Lastet inn plan med ${timelineSteps.length - 1} unike dager. Starter på Dag 0.`, 'ok');
     stopSimulation(); 
 }
 
@@ -766,48 +813,44 @@ async function runPhaseSimulation(sliderIndexRaw) {
           return; 
         }
 
-        // 3. SKUDDSIKKER MATCHING MED TOUPPERCASE()
         let typeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim().toUpperCase() : "";
         let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].toString().trim().toUpperCase() : "";
         let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toUpperCase() : "";
 
-        let bSchedule = buildMap.get(`${typeVal}|${builtVal}`);
-        let dSchedule = demoMap.get(`${typeVal}|${demoVal}`);
-        let isDay0 = day0Map.get(typeVal) === true;
+        let state = 'hidden'; 
+        let isDay0 = false;
+        let bStart = -1, bEnd = -1;
+        let dStart = -1, dEnd = -1;
 
-        let state = 'completed'; 
+        // Finn planlagt logikk i Excel-reglene
+        scheduleRules.forEach(r => {
+            if (r.type === typeVal) {
+                if (r.day0) isDay0 = true;
+                if (r.built !== "" && r.built === builtVal) { bStart = r.startIdx; bEnd = r.endIdx; }
+                if (r.built === "" && builtVal === "") { 
+                    if (r.demo === "" || (r.demo !== "" && r.demo === demoVal)) {
+                        if (r.demo === "" && r.startIdx !== -1) { bStart = r.startIdx; bEnd = r.endIdx; }
+                    }
+                }
+                if (r.demo !== "" && r.demo === demoVal) { dStart = r.startIdx; dEnd = r.endIdx; }
+            }
+        });
 
+        // Tidslinje og status-overganger
         if (sliderIndex === 0) {
-            if (isDay0) {
-                state = 'completed'; 
-            } else {
-                state = 'hidden';    
-            }
+            state = isDay0 ? 'completed' : 'hidden';
         } else {
-            if (builtVal !== "") {
-                if (bSchedule && bSchedule.startIdx !== -1) {
-                    if (sliderIndex < bSchedule.startIdx) {
-                        state = isDay0 ? 'completed' : 'hidden'; 
-                    } else if (bSchedule.endIdx !== -1 && sliderIndex >= bSchedule.startIdx && sliderIndex < bSchedule.endIdx) {
-                        state = 'active_build'; 
-                    } else {
-                        state = 'completed'; 
-                    }
-                } else {
-                    state = isDay0 ? 'completed' : 'hidden'; 
-                }
+            if (bStart !== -1) {
+                if (sliderIndex < bStart) state = isDay0 ? 'completed' : 'hidden';
+                else if (sliderIndex >= bStart && sliderIndex <= bEnd) state = 'active_build';
+                else state = 'completed'; 
             } else {
-               state = isDay0 ? 'completed' : 'hidden';
+                state = isDay0 ? 'completed' : 'hidden'; 
             }
 
-            if (demoVal !== "") {
-                if (dSchedule && dSchedule.startIdx !== -1) {
-                    if (dSchedule.endIdx !== -1 && sliderIndex >= dSchedule.startIdx && sliderIndex < dSchedule.endIdx) {
-                        state = 'active_demo'; 
-                    } else if (sliderIndex >= dSchedule.endIdx || (dSchedule.endIdx === -1 && sliderIndex >= dSchedule.startIdx)) {
-                        state = 'hidden'; 
-                    }
-                }
+            if (dStart !== -1) {
+                if (sliderIndex >= dStart && sliderIndex <= dEnd) state = 'active_demo';
+                else if (sliderIndex > dEnd) state = 'hidden'; 
             }
         }
 
@@ -818,7 +861,6 @@ async function runPhaseSimulation(sliderIndexRaw) {
             const mName = targetModel ? targetModel.name : "Ukjent modell";
             if (!activeActivities[mName]) activeActivities[mName] = { build: new Set(), demo: new Set() };
             
-            // Bruker originalverdien fra objektet for penere visning i boksen
             const displayTypeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim() : typeVal;
             if (state === 'active_build') activeActivities[mName].build.add(displayTypeVal);
             if (state === 'active_demo') activeActivities[mName].demo.add(displayTypeVal);
@@ -845,6 +887,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
       for (const mid of Object.keys(visibilityMap)) {
           const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
 
+          // 1. Skjul objekter trygt (uten å knytte color hit)
           if (hidden.length > 0) {
             for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
               const chunk = hidden.slice(i, i + API_CHUNK_LIMIT);
@@ -853,43 +896,35 @@ async function runPhaseSimulation(sliderIndexRaw) {
             }
           }
           
+          // 2. Vis ferdige objekter i sin vanlige farge
           if (completed.length > 0) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              
-              // 2. FJERNET color: "reset" (som krasjet synligheten tidligere)
               await API.viewer.setObjectState(payload, { visible: "reset" });
-              try {
-                 if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
-                 else { await API.viewer.setObjectState(payload, { color: null }); }
-              } catch(err) {}
+              try { await API.viewer.setObjectColor(payload, null); } catch(err) {}
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
+          // 3. Fargelegg grønt
           if (active_build.length > 0) {
             for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
               const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
               await API.viewer.setObjectState(payload, { visible: "reset" });
-              try {
-                 if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, COLOR_BUILD); }
-                 else { await API.viewer.setObjectState(payload, { color: COLOR_BUILD }); }
-              } catch(err) {}
+              try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(err) {}
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
+          // 4. Fargelegg rødt
           if (active_demo.length > 0) {
             for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
               const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
               await API.viewer.setObjectState(payload, { visible: "reset" });
-              try {
-                 if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, COLOR_DEMO); }
-                 else { await API.viewer.setObjectState(payload, { color: COLOR_DEMO }); }
-              } catch(err) {}
+              try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(err) {}
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
@@ -925,10 +960,7 @@ async function nullstillVisning() {
                 const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
                 
                 await API.viewer.setObjectState(payload, { visible: "reset" });
-                try {
-                   if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
-                   else { await API.viewer.setObjectState(payload, { color: null }); }
-                } catch(err) {}
+                try { await API.viewer.setObjectColor(payload, null); } catch(err) {}
                 await new Promise(r => setTimeout(r, 40));
             }
         }
