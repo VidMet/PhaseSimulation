@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v17.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v18.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Synlighetskommandoen rettet</span>
-    <em>v17.0</em>
+    <span>Sikker synlighet (visible: false/true)</span>
+    <em>v18.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -253,6 +253,7 @@ let allDiscoveredProperties = new Set();
 let timelineSteps = []; 
 let scheduleRules = [];
 
+// Sikrer at terreng og grøfteskråninger blir fanget opp
 const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 1000; 
 
@@ -614,11 +615,10 @@ function parseCSVAndBuildTimeline(csvText) {
             });
         });
         
-        if (minDag === Infinity) minDag = 1;
-        if (maxDag === -Infinity) maxDag = 1;
-
-        for (let i = minDag; i <= maxDag; i++) {
-            timelineSteps.push(`Dag ${i}`);
+        if (minDag !== Infinity && maxDag !== -Infinity) {
+            for (let i = minDag; i <= maxDag; i++) {
+                timelineSteps.push(`Dag ${i}`);
+            }
         }
 
         records.forEach(r => {
@@ -831,11 +831,14 @@ async function runPhaseSimulation(sliderIndexRaw) {
 
         let state = 'hidden'; 
         let isDay0 = window.day0Lookup.get(typeVal) === true;
+        
         let bStart = -1, bEnd = -1;
         let dStart = -1, dEnd = -1;
+        let hasRule = false;
 
         scheduleRules.forEach(r => {
             if (r.type === typeVal) {
+                hasRule = true;
                 if (r.built !== "" && r.built === builtVal) { bStart = r.startIdx; bEnd = r.endIdx; }
                 if (r.built === "" && builtVal === "") { 
                     if (r.demo === "" || (r.demo !== "" && r.demo === demoVal)) {
@@ -846,20 +849,25 @@ async function runPhaseSimulation(sliderIndexRaw) {
             }
         });
 
-        if (sliderIndex === 0) {
-            state = isDay0 ? 'completed' : 'hidden';
+        // Håndterer bakgrunnsmodeller og utelukkede objekter
+        if (!hasRule && !window.day0Lookup.has(typeVal)) {
+            state = 'completed';
         } else {
-            if (bStart !== -1) {
-                if (sliderIndex < bStart) state = isDay0 ? 'completed' : 'hidden';
-                else if (sliderIndex >= bStart && sliderIndex <= bEnd) state = 'active_build';
-                else state = 'completed'; 
+            if (sliderIndex === 0) {
+                state = isDay0 ? 'completed' : 'hidden';
             } else {
-                state = isDay0 ? 'completed' : 'hidden'; 
-            }
+                if (bStart !== -1) {
+                    if (sliderIndex < bStart) state = isDay0 ? 'completed' : 'hidden';
+                    else if (sliderIndex >= bStart && sliderIndex <= bEnd) state = 'active_build';
+                    else state = 'completed'; 
+                } else {
+                    state = isDay0 ? 'completed' : 'hidden'; 
+                }
 
-            if (dStart !== -1) {
-                if (sliderIndex >= dStart && sliderIndex <= dEnd) state = 'active_demo';
-                else if (sliderIndex > dEnd) state = 'hidden'; 
+                if (dStart !== -1) {
+                    if (sliderIndex >= dStart && sliderIndex <= dEnd) state = 'active_demo';
+                    else if (sliderIndex > dEnd) state = 'hidden'; 
+                }
             }
         }
 
@@ -896,39 +904,36 @@ async function runPhaseSimulation(sliderIndexRaw) {
       for (const mid of Object.keys(visibilityMap)) {
           const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
 
-          // 1. Skjul det som skal skjules
+          // STRENG OG SKUDDSIKKER VISIBILITY: Bruker KUN visible: true/false for at API-et ikke skal krasje
           if (hidden.length > 0) {
             for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
               const chunk = hidden.slice(i, i + API_CHUNK_LIMIT);
               await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: false });
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
           
-          // 2. Vis ferdige objekter (Gjeninnfører visible: "reset" som vi VET at fungerer)
           if (completed.length > 0) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset" });
+              await API.viewer.setObjectState(payload, { visible: true });
               try {
                  if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
               } catch(err) {}
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
-          // 3. Vis og fargelegg aktive objekter
           if (active_build.length > 0) {
             for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
               const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset" });
+              await API.viewer.setObjectState(payload, { visible: true });
               try {
                  if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, COLOR_BUILD); }
-                 else { await API.viewer.setObjectState(payload, { color: COLOR_BUILD }); }
               } catch(err) {}
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
@@ -936,12 +941,11 @@ async function runPhaseSimulation(sliderIndexRaw) {
             for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
               const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset" });
+              await API.viewer.setObjectState(payload, { visible: true });
               try {
                  if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, COLOR_DEMO); }
-                 else { await API.viewer.setObjectState(payload, { color: COLOR_DEMO }); }
               } catch(err) {}
-              await new Promise(r => setTimeout(r, 30)); 
+              await new Promise(r => setTimeout(r, 40)); 
             }
           }
       }
@@ -975,11 +979,11 @@ async function nullstillVisning() {
                 const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
                 const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
                 
-                await API.viewer.setObjectState(payload, { visible: "reset" });
+                await API.viewer.setObjectState(payload, { visible: true });
                 try {
                    if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
                 } catch(err) {}
-                await new Promise(r => setTimeout(r, 30));
+                await new Promise(r => setTimeout(r, 40));
             }
         }
         if (API.viewer.refresh) await API.viewer.refresh();
