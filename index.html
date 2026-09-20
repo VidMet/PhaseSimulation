@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v11.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v12.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Day0-funksjonalitet inkludert</span>
-    <em>v11.0</em>
+    <span>Datofiks og Day0 korrigert</span>
+    <em>v12.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -173,8 +173,8 @@
     <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
     <table>
       <tr><th>Objekttype</th><th>Modell bygges</th><th>Modell rives</th><th>DatoStart</th><th>DatoSlutt</th><th>Day0</th></tr>
-      <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>01.05.2026</td><td>15.05.2026</td><td>FALSE</td></tr>
-      <tr><td>Skjæring</td><td></td><td>Fase 2</td><td>16.05.2026</td><td>01.06.2026</td><td>TRUE</td></tr>
+      <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>Dag 14</td><td>Dag 15</td><td>FALSE</td></tr>
+      <tr><td>Grøfteskråning</td><td></td><td>Fase 2</td><td>Dag 15</td><td>Dag 17</td><td>TRUE</td></tr>
     </table>
   </div>
 
@@ -235,7 +235,6 @@
       </div>
     </div>
     
-    <!-- Aktivitetsboks -->
     <div class="activity-box">
       <h4>Aktivitet akkurat nå:</h4>
       <ul class="activity-list" id="activityList">
@@ -254,9 +253,10 @@ let allDiscoveredProperties = new Set();
 let timelineSteps = []; 
 let buildMap = new Map(); 
 let demoMap = new Map();  
-let day0Map = new Map(); // Nytt kart for å håndtere Day0
+let day0Map = new Map();
 
-const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
+// KORRIGERT: Fjernet IFCSITE slik at landskap og grøfteskråninger fanges opp!
+const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
 
 const COLOR_BUILD = { r: 168, g: 208, b: 141, a: 255 }; 
@@ -565,7 +565,6 @@ $('csvFileInput').addEventListener('change', function(e) {
 function parseCSVAndBuildTimeline(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
     const records = [];
-    let isRelative = true;
 
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(/[;,]/); 
@@ -574,13 +573,24 @@ function parseCSVAndBuildTimeline(csvText) {
         const demo = (cols[2] || '').trim();
         const startStr = (cols[3] || '').trim();
         const endStr = (cols[4] || '').trim();
-        const day0Str = (cols[5] || '').trim().toUpperCase(); // Ny Day0 kolonne
+        const day0Str = (cols[5] || '').trim().toUpperCase(); 
 
-        if (startStr || endStr) isRelative = false;
-        
         if (type && (built || demo || day0Str)) {
             records.push({ type, built, demo, startStr, endStr, day0Str });
         }
+    }
+
+    // KORRIGERT: Sjekker intelligent om input er "Dag X" eller "20.10.2025"
+    let isRelative = false;
+    records.forEach(r => {
+        if ((r.startStr && r.startStr.toLowerCase().startsWith('dag')) || 
+            (r.endStr && r.endStr.toLowerCase().startsWith('dag'))) {
+            isRelative = true;
+        }
+    });
+
+    if (!isRelative && !records.some(r => r.startStr || r.endStr)) {
+        isRelative = true; 
     }
 
     timelineSteps = ["Dag 0 (Før oppstart)"];
@@ -588,23 +598,42 @@ function parseCSVAndBuildTimeline(csvText) {
     if (isRelative) {
         let maxDag = 0;
         records.forEach((r, idx) => { 
-            if(r.built) {
-                r.startStr = `Dag ${idx * 2 + 1}`; 
-                r.endStr = `Dag ${idx * 2 + 2}`;
-            } else if (r.demo) {
-                r.startStr = `Dag ${idx * 2 + 2}`;
-            }
-            maxDag = Math.max(maxDag, (idx * 2 + 2));
+            if (!r.startStr && r.built) r.startStr = `Dag ${idx * 2 + 1}`; 
+            if (!r.endStr && r.built) r.endStr = `Dag ${idx * 2 + 2}`;
+            if (!r.startStr && r.demo) r.startStr = `Dag ${idx * 2 + 2}`;
+            if (!r.endStr && r.demo) r.endStr = `Dag ${idx * 2 + 3}`;
+            
+            [r.startStr, r.endStr].forEach(str => {
+                if (str && str.toLowerCase().startsWith('dag')) {
+                    let num = parseInt(str.toLowerCase().replace(/[^\d]/g, ''), 10);
+                    if (!isNaN(num) && num > maxDag) maxDag = num;
+                }
+            });
         });
-        for (let i = 1; i <= maxDag; i++) timelineSteps.push(`Dag ${i}`);
+        
+        for (let i = 1; i <= maxDag; i++) {
+            timelineSteps.push(`Dag ${i}`);
+        }
+
+        records.forEach(r => {
+            if (r.startStr && r.startStr.toLowerCase().startsWith('dag')) {
+                r.startStr = `Dag ${parseInt(r.startStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
+            }
+            if (r.endStr && r.endStr.toLowerCase().startsWith('dag')) {
+                r.endStr = `Dag ${parseInt(r.endStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
+            }
+        });
+
     } else {
         let minTime = Infinity, maxTime = -Infinity;
         records.forEach(r => {
             [r.startStr, r.endStr].forEach(dStr => {
                if (dStr) {
                   let time = parseDateObj(dStr).getTime();
-                  if (time < minTime) minTime = time;
-                  if (time > maxTime) maxTime = time;
+                  if (!isNaN(time)) {
+                      if (time < minTime) minTime = time;
+                      if (time > maxTime) maxTime = time;
+                  }
                }
             });
         });
@@ -619,8 +648,14 @@ function parseCSVAndBuildTimeline(csvText) {
         }
         
         records.forEach(r => {
-           if(r.startStr) r.startStr = formatDateObj(parseDateObj(r.startStr));
-           if(r.endStr) r.endStr = formatDateObj(parseDateObj(r.endStr));
+           if (r.startStr) {
+               let time = parseDateObj(r.startStr).getTime();
+               if(!isNaN(time)) r.startStr = formatDateObj(new Date(time));
+           }
+           if (r.endStr) {
+               let time = parseDateObj(r.endStr).getTime();
+               if(!isNaN(time)) r.endStr = formatDateObj(new Date(time));
+           }
         });
     }
 
@@ -636,7 +671,6 @@ function parseCSVAndBuildTimeline(csvText) {
             if (r.built) buildMap.set(`${r.type}|${r.built}`, { startIdx: sIdx, endIdx: eIdx });
             if (r.demo) demoMap.set(`${r.type}|${r.demo}`, { startIdx: sIdx, endIdx: eIdx });
             
-            // Håndter Day0 logikken. Tolker alt som "TRUE", "SANN" eller "1" som positivt
             if (r.day0Str === 'TRUE' || r.day0Str === 'SANN' || r.day0Str === '1') {
                 day0Map.set(r.type, true);
             } else {
@@ -792,15 +826,13 @@ async function runPhaseSimulation(sliderIndexRaw) {
 
         let state = 'completed'; 
 
-        // Logikk for Dag 0 (index 0)
         if (sliderIndex === 0) {
             if (isDay0) {
-                state = 'completed'; // Synlig i standardfarge
+                state = 'completed'; 
             } else {
-                state = 'hidden';    // Avslått
+                state = 'hidden';    
             }
         } else {
-            // Normal Tidslinje-logikk for Dag 1 og utover
             if (builtVal !== "") {
                 if (bSchedule && bSchedule.startIdx !== -1) {
                     if (sliderIndex < bSchedule.startIdx) {
@@ -814,7 +846,6 @@ async function runPhaseSimulation(sliderIndexRaw) {
                     state = isDay0 ? 'completed' : 'hidden'; 
                 }
             } else {
-               // Objekter uten oppføringsfase arver status fra Dag 0 før rivning
                state = isDay0 ? 'completed' : 'hidden';
             }
 
