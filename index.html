@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v9.2</title>
+  <title>BIM 4D Fremdriftsplanlegger v10.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -77,10 +77,21 @@
     
     .timeline-markers { display: flex; justify-content: space-between; font-family: var(--mono); font-size: 11px; color: var(--muted); margin-top: 10px; font-weight: 600; }
     
-    /* Playback kontroller */
-    .playback-controls { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+    .playback-controls { display: flex; justify-content: center; align-items: center; gap: 10px; flex-wrap: wrap; margin-top: 5px; }
     .speed-control { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--surface2); padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); }
     .speed-control input { background: transparent; color: var(--ink); border: none; outline: none; font-family: var(--mono); font-weight: 700; font-size: 12px; width: 35px; text-align: center; }
+
+    /* Nytt aktivitetspanel */
+    .activity-box { background: var(--surface2); padding: 14px; border-radius: 8px; border: 1px solid var(--border); margin-top: 15px; width: 100%; }
+    .activity-box h4 { color: var(--blue); margin-bottom: 10px; font-size: 13px; font-weight: 700; }
+    .activity-list { list-style-type: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;}
+    .activity-list li { display: flex; align-items: flex-start; gap: 8px; font-size: 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px;}
+    .activity-list li:last-child { border-bottom: none; padding-bottom: 0; }
+    .model-name { font-weight: 600; color: var(--ink); width: 160px; flex-shrink: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;}
+    .tags-container { display: flex; flex-wrap: wrap; gap: 6px; }
+    .badge-build { background: #A8D08D; color: #000; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; text-transform: uppercase;}
+    .badge-demo { background: #FF4C4C; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: bold; font-size: 10px; text-transform: uppercase;}
+    .no-activity { color: var(--muted); font-size: 11px; font-style: italic; }
 
     .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 750px; margin: 0 auto; }
     .empty-state h3 { font-size: 15px; color: var(--blue); margin-bottom: 16px; font-weight: 700; }
@@ -110,8 +121,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Fargetilbakestilling løst</span>
-    <em>v9.2</em>
+    <span>Dag-for-dag og Aktivitetsvisning</span>
+    <em>v10.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -221,8 +232,16 @@
       
       <div class="speed-control" style="margin-left: 10px;">
         <label>Sek pr. dag:</label>
-        <input type="number" id="speedInput" value="1.0" min="0.1" step="0.1">
+        <input type="number" id="speedInput" value="0.5" min="0.1" step="0.1">
       </div>
+    </div>
+    
+    <!-- Aktivitetsboks -->
+    <div class="activity-box">
+      <h4>Aktivitet akkurat nå:</h4>
+      <ul class="activity-list" id="activityList">
+        <li class="no-activity">Venter på avspilling...</li>
+      </ul>
     </div>
   </div>
 </main>
@@ -240,7 +259,6 @@ let demoMap = new Map();
 const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
 
-// Farger: Lys/lun grønn for oppføring, rød for riving
 const COLOR_BUILD = { r: 168, g: 208, b: 141, a: 255 }; 
 const COLOR_DEMO  = { r: 255, g: 76, b: 76, a: 255 }; 
 
@@ -514,6 +532,21 @@ function renderFilterBox(elementId, values, categoryKey) {
   `).join('');
 }
 
+// Hjelpefunksjon for å parse datoer robus uansett dd.mm.yyyy eller yyyy-mm-dd
+function parseDateObj(dStr) {
+  if (!dStr) return null;
+  let parts = dStr.split(/[\.\-\/]/);
+  if (parts.length === 3) {
+      if (parts[0].length === 4) return new Date(parts[0], parts[1]-1, parts[2]);
+      else return new Date(parts[2], parts[1]-1, parts[0]);
+  }
+  return new Date(dStr);
+}
+
+function formatDateObj(d) {
+   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth()+1).padStart(2, '0')}.${d.getFullYear()}`;
+}
+
 $('csvFileInput').addEventListener('change', function(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -533,7 +566,7 @@ $('csvFileInput').addEventListener('change', function(e) {
 function parseCSVAndBuildTimeline(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
     const records = [];
-    let missingAllDates = true;
+    let isRelative = true;
 
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(/[;,]/); 
@@ -543,14 +576,18 @@ function parseCSVAndBuildTimeline(csvText) {
         const startStr = (cols[3] || '').trim();
         const endStr = (cols[4] || '').trim();
 
-        if (startStr || endStr) missingAllDates = false;
+        if (startStr || endStr) isRelative = false;
         
         if (type && (built || demo)) {
             records.push({ type, built, demo, startStr, endStr });
         }
     }
 
-    if (missingAllDates) {
+    timelineSteps = ["Dag 0 (Før oppstart)"];
+
+    if (isRelative) {
+        // Generer Dager (Relative tall)
+        let maxDag = 0;
         records.forEach((r, idx) => { 
             if(r.built) {
                 r.startStr = `Dag ${idx * 2 + 1}`; 
@@ -558,33 +595,37 @@ function parseCSVAndBuildTimeline(csvText) {
             } else if (r.demo) {
                 r.startStr = `Dag ${idx * 2 + 2}`;
             }
+            maxDag = Math.max(maxDag, (idx * 2 + 2));
+        });
+        for (let i = 1; i <= maxDag; i++) timelineSteps.push(`Dag ${i}`);
+    } else {
+        // Kontinuerlig dato-tidslinje
+        let minTime = Infinity, maxTime = -Infinity;
+        records.forEach(r => {
+            [r.startStr, r.endStr].forEach(dStr => {
+               if (dStr) {
+                  let time = parseDateObj(dStr).getTime();
+                  if (time < minTime) minTime = time;
+                  if (time > maxTime) maxTime = time;
+               }
+            });
+        });
+        
+        if (minTime !== Infinity && maxTime !== -Infinity) {
+            let current = new Date(minTime);
+            let end = new Date(maxTime);
+            while (current <= end) {
+                timelineSteps.push(formatDateObj(current));
+                current.setDate(current.getDate() + 1);
+            }
+        }
+        
+        // Standardiser input-datoer i records slik at de matcher timelineSteps
+        records.forEach(r => {
+           if(r.startStr) r.startStr = formatDateObj(parseDateObj(r.startStr));
+           if(r.endStr) r.endStr = formatDateObj(parseDateObj(r.endStr));
         });
     }
-
-    let dateObjects = [];
-    records.forEach(r => {
-        [r.startStr, r.endStr].forEach(dStr => {
-            if (dStr && !dateObjects.find(d => d.str === dStr)) {
-                let sortVal = 0;
-                if (dStr.startsWith('Dag ')) {
-                    sortVal = parseInt(dStr.replace('Dag ', ''));
-                } else {
-                    let parts = dStr.split('.');
-                    if (parts.length === 3) {
-                        sortVal = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
-                    } else {
-                        sortVal = new Date(dStr).getTime() || 0;
-                    }
-                }
-                dateObjects.push({ str: dStr, sortVal });
-            }
-        });
-    });
-    
-    dateObjects.sort((a,b) => a.sortVal - b.sortVal);
-    
-    timelineSteps = ["Dag 0 (Før oppstart)"];
-    timelineSteps = timelineSteps.concat(dateObjects.map(d => d.str));
 
     buildMap.clear(); 
     demoMap.clear();
@@ -702,6 +743,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
       const sliderIndex = parseInt(sliderIndexRaw, 10); 
       const currentPhaseValue = timelineSteps[sliderIndex];
       const visibilityMap = {};
+      const activeActivities = {}; 
 
       const propObjType = $('propObjType').value;
       const propStart = $('propStart').value;
@@ -767,7 +809,33 @@ async function runPhaseSimulation(sliderIndexRaw) {
         }
 
         visibilityMap[obj.modelId][state].push(obj.runtimeId);
+        
+        // Hent data for Aktivitetsboksen
+        if (state === 'active_build' || state === 'active_demo') {
+            const targetModel = allModels.find(m => String(m.id) === String(obj.modelId));
+            const mName = targetModel ? targetModel.name : "Ukjent modell";
+            if (!activeActivities[mName]) activeActivities[mName] = { build: new Set(), demo: new Set() };
+            
+            if (state === 'active_build') activeActivities[mName].build.add(typeVal);
+            if (state === 'active_demo') activeActivities[mName].demo.add(typeVal);
+        }
       });
+
+      // Oppdaterer aktivitetsboksen
+      const activityBox = $('activityList');
+      const actKeys = Object.keys(activeActivities);
+      if (actKeys.length === 0) {
+          activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet i dag</li>';
+      } else {
+          let actHtml = '';
+          actKeys.forEach(mName => {
+              let tags = '';
+              activeActivities[mName].build.forEach(t => tags += `<span class="badge-build">Bygges: ${t}</span>`);
+              activeActivities[mName].demo.forEach(t => tags += `<span class="badge-demo">Rives: ${t}</span>`);
+              actHtml += `<li><div class="model-name" title="${mName}">${mName}</div><div class="tags-container">${tags}</div></li>`;
+          });
+          activityBox.innerHTML = actHtml;
+      }
 
       setStatus(`⏳ Oppdaterer visning for: ${currentPhaseValue}...`);
         
@@ -786,13 +854,9 @@ async function runPhaseSimulation(sliderIndexRaw) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              
-              // KORRIGERT: Legger inn color: "reset" for å fjerne overstyringen av farger[cite: 10]
               await API.viewer.setObjectState(payload, { visible: "reset", color: "reset" });
               try {
-                 if (typeof API.viewer.setObjectColor === 'function') { 
-                     await API.viewer.setObjectColor(payload, null); 
-                 }
+                 if (typeof API.viewer.setObjectColor === 'function') { await API.viewer.setObjectColor(payload, null); }
               } catch(err) {}
               await new Promise(r => setTimeout(r, 30)); 
             }
@@ -854,7 +918,6 @@ async function nullstillVisning() {
                 const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
                 const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
                 
-                // KORRIGERT: Fjerner overstyringen også her
                 await API.viewer.setObjectState(payload, { visible: "reset", color: "reset" });
                 try {
                    if (typeof API.viewer.setObjectColor === 'function') { 
