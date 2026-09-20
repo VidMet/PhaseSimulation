@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v23.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v24.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -109,8 +109,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Ren Player & ID-krasj løst</span>
-    <em>v23.0</em>
+    <span>Fargelegging og byggerekkefølge rettet</span>
+    <em>v24.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -708,171 +708,203 @@ $('phaseSlider').addEventListener('change', (e) => {
     runPhaseSimulation(e.target.value);
 });
 
+async function applyStateInChunks(modelId, runtimeIds, objectState) {
+  if (!runtimeIds || runtimeIds.length === 0) return;
+
+  const cleanIds = Array.from(new Set(runtimeIds))
+    .map(id => Number(id))
+    .filter(id => Number.isFinite(id));
+
+  for (let i = 0; i < cleanIds.length; i += API_CHUNK_LIMIT) {
+    const chunk = cleanIds.slice(i, i + API_CHUNK_LIMIT);
+    const payload = {
+      modelObjectIds: [{
+        modelId: String(modelId),
+        objectRuntimeIds: chunk
+      }]
+    };
+
+    // Farge er en del av ObjectState. Dette er den dokumenterte API-metoden.
+    await API.viewer.setObjectState(payload, objectState);
+    await new Promise(resolve => setTimeout(resolve, 40));
+  }
+}
+
+function findScheduleRule(typeVal, builtVal, demoVal) {
+  // En regel identifiseres av objekttype og verdien i enten Modell bygges
+  // eller Modell rives. Tom kolonne er ikke et positivt treff.
+  return scheduleRules.find(rule => {
+    if (rule.type !== typeVal) return false;
+
+    const buildMatch = rule.built !== '' && rule.built === builtVal;
+    const demoMatch = rule.demo !== '' && rule.demo === demoVal;
+
+    // Dersom både bygges og rives er utfylt, må begge stemme.
+    if (rule.built !== '' && rule.demo !== '') {
+      return buildMatch && demoMatch;
+    }
+
+    return buildMatch || demoMatch;
+  }) || null;
+}
+
 async function runPhaseSimulation(sliderIndexRaw) {
   if (!API || !modelObjectsData.length || timelineSteps.length === 0) return;
-  
+
   if (isRendering) {
-      pendingRenderIdx = parseInt(sliderIndexRaw, 10);
-      return;
+    pendingRenderIdx = parseInt(sliderIndexRaw, 10);
+    return;
   }
   isRendering = true;
-  
+
   try {
-      const sliderIndex = parseInt(sliderIndexRaw, 10); 
-      const currentPhaseValue = timelineSteps[sliderIndex];
-      const visibilityMap = {};
-      const activeActivities = {}; 
+    const sliderIndex = parseInt(sliderIndexRaw, 10);
+    const currentPhaseValue = timelineSteps[sliderIndex];
+    const visibilityMap = {};
+    const activeActivities = {};
 
-      const propObjType = $('propObjType').value;
-      const propStart = $('propStart').value;
-      const propEnd = $('propEnd').value;
+    const propObjType = $('propObjType').value;
+    const propStart = $('propStart').value;
+    const propEnd = $('propEnd').value;
 
-      modelObjectsData.forEach(obj => {
-        if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active_build: [], active_demo: [], completed: [] };
-        
-        let typeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim().toLocaleUpperCase('nb-NO') : "";
-        let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].toString().trim().toLocaleUpperCase('nb-NO') : "";
-        let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toLocaleUpperCase('nb-NO') : "";
+    modelObjectsData.forEach(obj => {
+      const modelKey = String(obj.modelId);
+      if (!visibilityMap[modelKey]) {
+        visibilityMap[modelKey] = {
+          hidden: [],
+          active_build: [],
+          active_demo: [],
+          completed: []
+        };
+      }
 
-        let state = 'hidden'; 
-        let isDay0 = window.day0Lookup.get(typeVal) === true;
-        
-        let bStart = -1, bEnd = -1;
-        let dStart = -1, dEnd = -1;
-        let hasRule = false;
+      const typeVal = obj.props[propObjType]
+        ? obj.props[propObjType].toString().trim().toLocaleUpperCase('nb-NO')
+        : '';
+      const builtVal = propStart && obj.props[propStart]
+        ? obj.props[propStart].toString().trim().toLocaleUpperCase('nb-NO')
+        : '';
+      const demoVal = propEnd && obj.props[propEnd]
+        ? obj.props[propEnd].toString().trim().toLocaleUpperCase('nb-NO')
+        : '';
 
-        scheduleRules.forEach(r => {
-            if (r.type === typeVal) {
-                let matchBuild = (r.built === "" && builtVal === "") || (r.built !== "" && r.built === builtVal);
-                let matchDemo = (r.demo === "" && demoVal === "") || (r.demo !== "" && r.demo === demoVal);
+      const rule = findScheduleRule(typeVal, builtVal, demoVal);
+      const day0Visible = window.day0Lookup.get(typeVal) === true;
+      let state = 'completed';
 
-                if (matchBuild || matchDemo) {
-                    hasRule = true;
-                    if (matchBuild && r.built !== "") { bStart = r.startIdx; bEnd = r.endIdx; }
-                    if (matchDemo && r.demo !== "") { dStart = r.startIdx; dEnd = r.endIdx; }
-                }
-            }
-        });
+      if (!rule) {
+        // Objekter som ikke inngår i planen beholdes synlige med naturlig farge.
+        state = 'completed';
+      } else if (sliderIndex === 0) {
+        state = day0Visible ? 'completed' : 'hidden';
+      } else {
+        const isBuildRule = rule.built !== '' && rule.built === builtVal;
+        const isDemoRule = rule.demo !== '' && rule.demo === demoVal;
+        const startIdx = rule.startIdx;
+        const endIdx = rule.endIdx >= startIdx ? rule.endIdx : rule.startIdx;
 
-        if (!hasRule && !window.day0Lookup.has(typeVal)) {
+        if (isDemoRule && !isBuildRule) {
+          // Riveobjekt: naturlig synlig før rivestart, rødt i riveperioden,
+          // skjult etter DatoSlutt.
+          if (sliderIndex < startIdx) {
+            state = day0Visible ? 'completed' : 'hidden';
+          } else if (sliderIndex >= startIdx && sliderIndex <= endIdx) {
+            state = 'active_demo';
+          } else {
+            state = 'hidden';
+          }
+        } else if (isBuildRule) {
+          // Byggeobjekt: styres av Day0 før start, grønt fra DatoStart
+          // til og med DatoSlutt, deretter naturlig farge.
+          if (sliderIndex < startIdx) {
+            state = day0Visible ? 'completed' : 'hidden';
+          } else if (sliderIndex >= startIdx && sliderIndex <= endIdx) {
+            state = 'active_build';
+          } else {
             state = 'completed';
-        } else {
-            if (sliderIndex === 0) {
-                state = isDay0 ? 'completed' : 'hidden';
-            } else {
-                if (bStart !== -1) {
-                    if (sliderIndex < bStart) state = isDay0 ? 'completed' : 'hidden';
-                    else if (sliderIndex >= bStart && sliderIndex <= bEnd) state = 'active_build';
-                    else state = 'completed'; 
-                } else {
-                    state = isDay0 ? 'completed' : 'hidden'; 
-                }
-
-                if (dStart !== -1) {
-                    if (sliderIndex >= dStart && sliderIndex <= dEnd) state = 'active_demo';
-                    else if (sliderIndex > dEnd) state = 'hidden'; 
-                }
-            }
+          }
         }
+      }
 
-        visibilityMap[obj.modelId][state].push(obj.runtimeId);
-        
-        if (state === 'active_build' || state === 'active_demo') {
-            const targetModel = allModels.find(m => String(m.id) === String(obj.modelId));
-            const mName = targetModel ? targetModel.name : "Ukjent modell";
-            if (!activeActivities[mName]) activeActivities[mName] = { build: new Set(), demo: new Set() };
-            
-            const displayTypeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim() : typeVal;
-            if (state === 'active_build') activeActivities[mName].build.add(displayTypeVal);
-            if (state === 'active_demo') activeActivities[mName].demo.add(displayTypeVal);
+      visibilityMap[modelKey][state].push(obj.runtimeId);
+
+      if (state === 'active_build' || state === 'active_demo') {
+        const targetModel = allModels.find(m => String(m.id) === modelKey);
+        const modelName = targetModel ? targetModel.name : 'Ukjent modell';
+        if (!activeActivities[modelName]) {
+          activeActivities[modelName] = { build: new Set(), demo: new Set() };
         }
+        const displayType = obj.props[propObjType]
+          ? obj.props[propObjType].toString().trim()
+          : typeVal;
+        if (state === 'active_build') activeActivities[modelName].build.add(displayType);
+        if (state === 'active_demo') activeActivities[modelName].demo.add(displayType);
+      }
+    });
+
+    const activityBox = $('activityList');
+    const activityModels = Object.keys(activeActivities);
+    if (activityModels.length === 0) {
+      activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet akkurat nå</li>';
+    } else {
+      activityBox.innerHTML = activityModels.map(modelName => {
+        const buildTags = Array.from(activeActivities[modelName].build)
+          .map(type => `<span class="badge-build">Bygges: ${type}</span>`).join('');
+        const demoTags = Array.from(activeActivities[modelName].demo)
+          .map(type => `<span class="badge-demo">Rives: ${type}</span>`).join('');
+        return `<li><div class="model-name" title="${modelName}">${modelName}</div>` +
+               `<div class="tags-container">${buildTags}${demoTags}</div></li>`;
+      }).join('');
+    }
+
+    setStatus(`⏳ Oppdaterer visning for: ${currentPhaseValue}...`, 'warn');
+
+    for (const modelId of Object.keys(visibilityMap)) {
+      const states = visibilityMap[modelId];
+
+      // Skjulte objekter får også fargen nullstilt, slik at gammel fasefarge
+      // ikke ligger igjen når objektet senere blir synlig igjen.
+      await applyStateInChunks(modelId, states.hidden, {
+        visible: false,
+        color: 'reset'
       });
 
-      const activityBox = $('activityList');
-      const actKeys = Object.keys(activeActivities);
-      if (actKeys.length === 0) {
-          activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet akkurat nå</li>';
-      } else {
-          let actHtml = '';
-          actKeys.forEach(mName => {
-              let tags = '';
-              activeActivities[mName].build.forEach(t => tags += `<span class="badge-build">Bygges: ${t}</span>`);
-              activeActivities[mName].demo.forEach(t => tags += `<span class="badge-demo">Rives: ${t}</span>`);
-              actHtml += `<li><div class="model-name" title="${mName}">${mName}</div><div class="tags-container">${tags}</div></li>`;
-          });
-          activityBox.innerHTML = actHtml;
+      // Ferdige objekter vises med modellens naturlige/originale farge.
+      await applyStateInChunks(modelId, states.completed, {
+        visible: true,
+        color: 'reset'
+      });
+
+      // Objekter under bygging vises grønt.
+      await applyStateInChunks(modelId, states.active_build, {
+        visible: true,
+        color: COLOR_BUILD
+      });
+
+      // Objekter under riving vises rødt.
+      await applyStateInChunks(modelId, states.active_demo, {
+        visible: true,
+        color: COLOR_DEMO
+      });
+    }
+
+    if (API.viewer.refresh) {
+      try { await API.viewer.refresh(); } catch (refreshError) {
+        console.warn('Viewer refresh feilet:', refreshError);
       }
+    }
 
-      setStatus(`⏳ Oppdaterer visning for: ${currentPhaseValue}...`);
-        
-      for (const mid of Object.keys(visibilityMap)) {
-          const stringModelId = String(mid);
-          const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
-
-          // 1. Skjul skjulte objekter (vi bevarer runtimeId nøyaktig slik den er)
-          if (hidden.length > 0) {
-            for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
-              const chunk = hidden.slice(i, i + API_CHUNK_LIMIT); 
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              try {
-                  await API.viewer.setObjectState(payload, { visible: false });
-              } catch(err) { console.error("Feil ved skjuling:", err); }
-              await new Promise(r => setTimeout(r, 40)); 
-            }
-          }
-          
-          // 2. Vis ferdige objekter
-          if (completed.length > 0) {
-            for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
-              const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              try {
-                  await API.viewer.setObjectState(payload, { visible: true });
-                  try { await API.viewer.setObjectColor(payload, null); } catch(e){}
-              } catch(err) { console.error("Feil ved visning/fargenullstilling:", err); }
-              await new Promise(r => setTimeout(r, 40)); 
-            }
-          }
-
-          // 3. Byggefase (Grønn)
-          if (active_build.length > 0) {
-            for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
-              const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              try {
-                  await API.viewer.setObjectState(payload, { visible: true });
-                  try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(e){}
-              } catch(err) { console.error("Feil ved grønn fargelegging:", err); }
-              await new Promise(r => setTimeout(r, 40)); 
-            }
-          }
-
-          // 4. Rivefase (Rød)
-          if (active_demo.length > 0) {
-            for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
-              const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
-              const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              try {
-                  await API.viewer.setObjectState(payload, { visible: true });
-                  try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(e){}
-              } catch(err) { console.error("Feil ved rød fargelegging:", err); }
-              await new Promise(r => setTimeout(r, 40)); 
-            }
-          }
-      }
-      if (API.viewer.refresh) try { await API.viewer.refresh(); } catch(e){}
-      setStatus(`✅ Viser tidspunkt: ${currentPhaseValue}`, 'ok');
-
-  } catch (e) { 
-      setStatus('❌ Feil under 4D-oppdatering: ' + e.message, 'error'); 
-      console.error(e);
+    setStatus(`✅ Viser tidspunkt: ${currentPhaseValue}`, 'ok');
+  } catch (e) {
+    console.error('Feil under 4D-oppdatering:', e);
+    setStatus('❌ Feil under 4D-oppdatering: ' + e.message, 'error');
   } finally {
-      isRendering = false;
-      if (pendingRenderIdx !== -1) {
-          let nextIdx = pendingRenderIdx;
-          pendingRenderIdx = -1;
-          runPhaseSimulation(nextIdx);
-      }
+    isRendering = false;
+    if (pendingRenderIdx !== -1) {
+      const nextIdx = pendingRenderIdx;
+      pendingRenderIdx = -1;
+      runPhaseSimulation(nextIdx);
+    }
   }
 }
 
