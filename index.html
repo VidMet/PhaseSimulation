@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v6.3</title>
+  <title>BIM 4D Fremdriftsplanlegger v6.4</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -80,6 +80,10 @@
     .empty-state { text-align: center; padding: 40px 20px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; max-width: 600px; margin: 0 auto; }
     .empty-state h3 { font-size: 15px; color: var(--blue); margin-bottom: 16px; font-weight: 700; }
     .empty-state p { font-size: 13px; margin-bottom: 16px; line-height: 1.6; }
+    
+    table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 12px; }
+    th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
+    th { background: var(--surface2); font-family: var(--mono); }
   </style>
 </head>
 <body>
@@ -90,8 +94,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Excel-import og modellutvalg</span>
-    <em>v6.3</em>
+    <span>Aktivitetsfarging under oppføring</span>
+    <em>v6.4</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -113,19 +117,11 @@
 
 <div id="filterBar">
   <div class="filter-group">
-    <label>3. Objekttype:</label>
+    <label>3. Objekttype/Fase:</label>
     <select id="propObjType" disabled><option value="">Skann først...</option></select>
   </div>
-  <div class="filter-group">
-    <label>4. Fase Bygges:</label>
-    <select id="propStart" disabled><option value="">Skann først...</option></select>
-  </div>
-  <div class="filter-group">
-    <label>5. Fase Rives (Valgfri):</label>
-    <select id="propEnd" disabled><option value="">Skann først...</option></select>
-  </div>
-  <div class="file-upload-wrapper">
-    <button class="btn btn-primary" id="btnUpload" disabled>📂 6. Last opp CSV-plan</button>
+  <div class="file-upload-wrapper" style="margin-left: auto;">
+    <button class="btn btn-primary" id="btnUpload" disabled>📂 4. Last opp CSV-plan</button>
     <input type="file" id="csvFileInput" accept=".csv" disabled>
   </div>
 </div>
@@ -134,11 +130,17 @@
   <div class="empty-state" id="emptyState">
     <h3>Koble modellen mot fremdriftsplan</h3>
     <ol style="text-align: left; margin: 0 auto; line-height: 1.8; font-size: 13px; padding-left: 20px;">
-      <li>Trykk <strong>1. Hent modeller</strong> for å fylle listen.</li>
-      <li>Velg i listen hvilke modeller du ønsker å ta med i simuleringen.</li>
+      <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
-      <li>Velg egenskaper og last opp CSV for å starte!</li>
+      <li>Velg felles egenskap (f.eks. Fase, PNS-kode).</li>
+      <li>Last opp CSV. Objekter under bygging vil farges oransje!</li>
     </ol>
+    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (3 kolonner):</p>
+    <table>
+      <tr><th>Objekttype</th><th>Byggestart</th><th>Byggeslutt</th></tr>
+      <tr><td>Fase 1</td><td>01.05.2025</td><td>15.06.2025</td></tr>
+      <tr><td>Fase 2</td><td>10.06.2025</td><td>14.08.2025</td></tr>
+    </table>
   </div>
 
   <div class="timeline-container" id="timelineUI">
@@ -164,11 +166,13 @@ let modelObjectsData = [];
 let allDiscoveredProperties = new Set(); 
 
 let timelineSteps = []; 
-let buildMap = new Map(); 
-let demoMap = new Map();  
+let buildScheduleMap = new Map(); // Nøkkel: ObjType -> { startIdx, endIdx }
 
 const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
+
+// Farge for "Under bygging" (Oransje)
+const COLOR_ACTIVE = { r: 255, g: 140, b: 0, a: 255 };
 
 const $ = id => document.getElementById(id);
 const setStatus = (txt, type='normal') => { 
@@ -220,8 +224,6 @@ async function fetchModels() {
   
   try {
     const nameMap = new Map();
-    
-    // 1. Primær metode for å takle runtime-IDs: Hent filnavn direkte fra vieweren
     try {
       const viewerModels = await API.viewer.getModels();
       (viewerModels || []).forEach(m => {
@@ -231,7 +233,6 @@ async function fetchModels() {
       });
     } catch(e) { console.warn("API.viewer.getModels feilet:", e); }
 
-    // 2. Sekundær metode: Fallback til prosjekt-API (hvis vieweren ikke leverer)
     try {
       const resModels = await API.models.getModels();
       const list = Array.isArray(resModels) ? resModels : (resModels?.models || resModels?.items || resModels?.data || []);
@@ -249,14 +250,11 @@ async function fetchModels() {
       
       let finalName = nameMap.get(midString) || m.modelName || m.name;
       
-      // Siste fallback hvis navnet fremdeles er tomt
       if (!finalName || finalName.trim() === '') {
           const rootObj = (m.objects || []).find(o => o.name && o.name.trim() !== '');
           if (rootObj) finalName = rootObj.name;
       }
-      if (!finalName || finalName.trim() === '') {
-          finalName = `Ukjent modell (${midString.substring(0,5)})`;
-      }
+      if (!finalName || finalName.trim() === '') finalName = `Ukjent modell (${midString.substring(0,5)})`;
       
       return { 
           id: originalMid, 
@@ -306,9 +304,7 @@ async function fetchModels() {
     $('modelSelectHeader').style.opacity = '1';$('btnScan').disabled = false;
     $('btnReset').disabled = false;
     setStatus('Modeller klare. Velg utvalg og trykk Skann.', 'ok');
-  } catch (e) {
-    setStatus('Feil ved modellhenting', 'error');
-  }
+  } catch (e) { setStatus('Feil ved modellhenting', 'error'); }
 }
 
 async function scanModels() {
@@ -409,19 +405,16 @@ async function scanModels() {
     populateDropdowns();
     $('csvFileInput').disabled = false;
     $('btnUpload').disabled = false;
-    setStatus(`Skanning ferdig for valgt utvalg. ${modelObjectsData.length} geometri-noder funnet.`, 'ok');
+    setStatus(`Skanning ferdig. Klar til opplasting.`, 'ok');
   } catch(e) { setStatus('Feil under skanning', 'error'); }
   $('btnScan').disabled = false;
 }
 
 function populateDropdowns() {
   const options = Array.from(allDiscoveredProperties).sort((a,b) => a.localeCompare(b, 'no', {sensitivity: 'base'}));
-  const baseHtml = '<option value="">-- Velg egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
-  const optionalHtml = '<option value="">-- Tom (Ignorer) --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
-  
-  $('propObjType').innerHTML = baseHtml; $('propObjType').disabled = false;
-  $('propStart').innerHTML = baseHtml; $('propStart').disabled = false;
-  $('propEnd').innerHTML = optionalHtml; $('propEnd').disabled = false;
+  const baseHtml = '<option value="">-- Velg felles egenskap --</option>' + options.map(p => `<option value="${p}">${p}</option>`).join('');
+  $('propObjType').innerHTML = baseHtml; 
+  $('propObjType').disabled = false;
 }
 
 $('csvFileInput').addEventListener('change', function(e) {
@@ -429,10 +422,8 @@ $('csvFileInput').addEventListener('change', function(e) {
   if (!file) return;
 
   const propObjType = $('propObjType').value;
-  const propStart = $('propStart').value;
-
-  if (!propObjType || !propStart) {
-    alert("Du må velge egenskaper for Objekttype og Fase Bygges før du laster opp filen!");
+  if (!propObjType) {
+    alert("Du må velge felles egenskap (f.eks. Fase) før du laster opp filen!");
     this.value = '';
     return;
   }
@@ -445,41 +436,44 @@ $('csvFileInput').addEventListener('change', function(e) {
 function parseCSVAndBuildTimeline(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
     const records = [];
-    let missingAllDates = true;
 
     for (let i = 1; i < lines.length; i++) {
         const cols = lines[i].split(/[;,]/); 
         const type = (cols[0] || '').trim();
-        const built = (cols[1] || '').trim();
-        const demo = (cols[2] || '').trim();
-        const dateStr = (cols[3] || '').trim();
+        const startStr = (cols[1] || '').trim();
+        const endStr = (cols[2] || '').trim();
 
-        if (dateStr) missingAllDates = false;
-        if (type && (built || demo)) records.push({ type, built, demo, dateStr, originalIndex: i });
+        if (type && startStr && endStr) {
+            records.push({ type, dateStr: startStr, isStart: true });
+            records.push({ type, dateStr: endStr, isStart: false });
+        }
     }
 
-    if (missingAllDates) {
-        records.forEach((r, idx) => { r.dateStr = `Dag ${idx + 1}`; r.sortVal = idx; });
-    } else {
-        records.forEach((r, idx) => {
-            if (!r.dateStr) { r.sortVal = 9999999999999; return; }
-            let parts = r.dateStr.split('.');
-            if (parts.length === 3) {
-                r.sortVal = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
-            } else {
-                r.sortVal = new Date(r.dateStr).getTime() || idx;
-            }
-        });
-    }
+    records.forEach((r, idx) => {
+        let parts = r.dateStr.split('.');
+        if (parts.length === 3) {
+            r.sortVal = new Date(`${parts[2]}-${parts[1]}-${parts[0]}`).getTime();
+        } else {
+            r.sortVal = new Date(r.dateStr).getTime() || idx;
+        }
+    });
 
     records.sort((a,b) => a.sortVal - b.sortVal);
-    timelineSteps = []; buildMap.clear(); demoMap.clear();
+    
+    timelineSteps = []; 
+    buildScheduleMap.clear();
 
     records.forEach(r => {
         if (!timelineSteps.includes(r.dateStr)) timelineSteps.push(r.dateStr);
-        let stepIdx = timelineSteps.indexOf(r.dateStr);
-        if (r.type && r.built) buildMap.set(`${r.type}|${r.built}`, stepIdx);
-        if (r.type && r.demo) demoMap.set(`${r.type}|${r.demo}`, stepIdx);
+    });
+
+    records.forEach(r => {
+        const stepIdx = timelineSteps.indexOf(r.dateStr);
+        if (!buildScheduleMap.has(r.type)) buildScheduleMap.set(r.type, { startIdx: -1, endIdx: -1 });
+        
+        const schedule = buildScheduleMap.get(r.type);
+        if (r.isStart) schedule.startIdx = stepIdx;
+        else schedule.endIdx = stepIdx;
     });
 
     if (timelineSteps.length === 0) return alert("Fant ingen gyldige data i filen.");
@@ -492,7 +486,7 @@ function parseCSVAndBuildTimeline(csvText) {
     
     $('emptyState').style.display = 'none';$('timelineUI').style.display = 'flex';
     
-    setStatus(`Lastet inn plan med ${timelineSteps.length} unike tidspunkter.`, 'ok');
+    setStatus(`Lastet inn plan. Klar til simulering.`, 'ok');
     runPhaseSimulation(slider.value);
 }
 
@@ -510,39 +504,27 @@ async function runPhaseSimulation(sliderIndex) {
   const visibilityMap = {};
 
   const propObjType = $('propObjType').value;
-  const propStart = $('propStart').value;
-  const propEnd = $('propEnd').value;
 
   modelObjectsData.forEach(obj => {
-    if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { show: [], hide: [] };
+    if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active: [], completed: [] };
     
-    let isVisible = true; 
     let typeVal = obj.props[propObjType];
-    let builtVal = obj.props[propStart];
-    let demoVal = propEnd ? obj.props[propEnd] : null;
+    let schedule = buildScheduleMap.get(typeVal);
 
-    if (typeVal) {
-        let bKey = `${typeVal}|${builtVal}`;
-        let dKey = `${typeVal}|${demoVal}`;
-
-        let bIdx = buildMap.has(bKey) ? buildMap.get(bKey) : -1;
-        let dIdx = demoMap.has(dKey) ? demoMap.get(dKey) : -1;
-
-        if (bIdx !== -1) {
-            if (sliderIndex < bIdx) {
-                isVisible = false; 
-            } else {
-                if (dIdx !== -1 && sliderIndex >= dIdx) {
-                    isVisible = false; 
-                }
-            }
+    if (schedule && schedule.startIdx !== -1 && schedule.endIdx !== -1) {
+        if (sliderIndex < schedule.startIdx) {
+            // Ikke bygget enda -> Skjul
+            visibilityMap[obj.modelId].hidden.push(obj.runtimeId);
+        } else if (sliderIndex >= schedule.startIdx && sliderIndex < schedule.endIdx) {
+            // Under bygging -> Vis og fargelegg (Aktiv)
+            visibilityMap[obj.modelId].active.push(obj.runtimeId);
+        } else {
+            // Ferdig bygget -> Vis i normal farge (Fullført)
+            visibilityMap[obj.modelId].completed.push(obj.runtimeId);
         }
-    }
-
-    if (isVisible) {
-      visibilityMap[obj.modelId].show.push(obj.runtimeId);
     } else {
-      visibilityMap[obj.modelId].hide.push(obj.runtimeId);
+        // Hvis objektet ikke har planlagt data, la det stå urørt (kontekst)
+        visibilityMap[obj.modelId].completed.push(obj.runtimeId);
     }
   });
 
@@ -550,19 +532,32 @@ async function runPhaseSimulation(sliderIndex) {
     setStatus(`Oppdaterer visning for: ${currentPhaseValue}...`, 'warn');
     
     for (const mid of Object.keys(visibilityMap)) {
-      const { show, hide } = visibilityMap[mid];
+      const { hidden, active, completed } = visibilityMap[mid];
 
-      if (hide.length > 0) {
-        for (let i = 0; i < hide.length; i += API_CHUNK_LIMIT) {
-          const chunk = hide.slice(i, i + API_CHUNK_LIMIT);
+      if (hidden.length > 0) {
+        for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
+          const chunk = hidden.slice(i, i + API_CHUNK_LIMIT);
           await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: false });
           await new Promise(r => setTimeout(r, 30)); 
         }
       }
-      if (show.length > 0) {
-        for (let i = 0; i < show.length; i += API_CHUNK_LIMIT) {
-          const chunk = show.slice(i, i + API_CHUNK_LIMIT);
+      
+      // Ferdigstilte objekter vises med normal farge
+      if (completed.length > 0) {
+        for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
+          const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
           await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
+          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, null);
+          await new Promise(r => setTimeout(r, 30)); 
+        }
+      }
+
+      // Aktive objekter vises og farges oransje
+      if (active.length > 0) {
+        for (let i = 0; i < active.length; i += API_CHUNK_LIMIT) {
+          const chunk = active.slice(i, i + API_CHUNK_LIMIT);
+          await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
+          await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, COLOR_ACTIVE);
           await new Promise(r => setTimeout(r, 30)); 
         }
       }
@@ -583,7 +578,9 @@ async function nullstillVisning() {
         });
         for (const mid in resetIds) {
             for (let i = 0; i < resetIds[mid].length; i += API_CHUNK_LIMIT) {
-                await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: resetIds[mid].slice(i, i + API_CHUNK_LIMIT) }] }, { visible: "reset" });
+                const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
+                await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: "reset" });
+                await API.viewer.setObjectColor({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, null);
                 await new Promise(r => setTimeout(r, 30));
             }
         }
