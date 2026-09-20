@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v12.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v13.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Datofiks og Day0 korrigert</span>
-    <em>v12.0</em>
+    <span>Diskrete hendelser & Dyp arvelogikk</span>
+    <em>v13.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -167,7 +167,6 @@
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
       <li>Velg egenskapene for Objekttype, Modell bygges og Modell rives.</li>
-      <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt/fag.</li>
       <li>Last opp din CSV/Excel-fil. Bruk mediespilleren for å bygge modellen!</li>
     </ol>
     <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
@@ -255,7 +254,6 @@ let buildMap = new Map();
 let demoMap = new Map();  
 let day0Map = new Map();
 
-// KORRIGERT: Fjernet IFCSITE slik at landskap og grøfteskråninger fanges opp!
 const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
 
@@ -472,10 +470,13 @@ async function scanModels() {
       tempObjectsDataMap.forEach((obj, runtimeId) => {
         let currentParentId = childToParentMap.get(runtimeId);
         let depth = 0;
-        while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 10) {
+        // KORRIGERT: Økt klatredybde til 50 nivåer for at dyp geometri skal fange opp egenskapene sine!
+        while (currentParentId != null && tempObjectsDataMap.has(currentParentId) && depth < 50) {
           const parentObj = tempObjectsDataMap.get(currentParentId);
           for (const key in parentObj.props) {
-            if (!obj.props[key]) obj.props[key] = parentObj.props[key];
+            if (!obj.props[key]) {
+              obj.props[key] = parentObj.props[key];
+            }
           }
           currentParentId = childToParentMap.get(currentParentId);
           depth++;
@@ -532,20 +533,6 @@ function renderFilterBox(elementId, values, categoryKey) {
   `).join('');
 }
 
-function parseDateObj(dStr) {
-  if (!dStr) return null;
-  let parts = dStr.split(/[\.\-\/]/);
-  if (parts.length === 3) {
-      if (parts[0].length === 4) return new Date(parts[0], parts[1]-1, parts[2]);
-      else return new Date(parts[2], parts[1]-1, parts[0]);
-  }
-  return new Date(dStr);
-}
-
-function formatDateObj(d) {
-   return `${String(d.getDate()).padStart(2, '0')}.${String(d.getMonth()+1).padStart(2, '0')}.${d.getFullYear()}`;
-}
-
 $('csvFileInput').addEventListener('change', function(e) {
   const file = e.target.files[0];
   if (!file) return;
@@ -565,99 +552,63 @@ $('csvFileInput').addEventListener('change', function(e) {
 function parseCSVAndBuildTimeline(csvText) {
     const lines = csvText.split(/\r?\n/).filter(l => l.trim().length > 0);
     const records = [];
+    
+    // KORRIGERT: Identifiser separator (semikolon, komma, tab) for å overleve Excel-eksport
+    const header = lines[0];
+    let sep = ';';
+    const commas = (header.match(/,/g) || []).length;
+    const semis = (header.match(/;/g) || []).length;
+    const tabs = (header.match(/\t/g) || []).length;
+    if (tabs > commas && tabs > semis) sep = '\t';
+    else if (commas > semis && commas > tabs) sep = ',';
+
+    // Renser teksten for eventuelle fnutter fra Excel
+    const clean = str => (str || '').replace(/(^"|"$)/g, '').trim();
 
     for (let i = 1; i < lines.length; i++) {
-        const cols = lines[i].split(/[;,]/); 
-        const type = (cols[0] || '').trim();
-        const built = (cols[1] || '').trim();
-        const demo = (cols[2] || '').trim();
-        const startStr = (cols[3] || '').trim();
-        const endStr = (cols[4] || '').trim();
-        const day0Str = (cols[5] || '').trim().toUpperCase(); 
+        const cols = lines[i].split(sep); 
+        const type = clean(cols[0]);
+        const built = clean(cols[1]);
+        const demo = clean(cols[2]);
+        const startStr = clean(cols[3]);
+        const endStr = clean(cols[4]);
+        const day0Str = clean(cols[5]).toUpperCase(); 
 
         if (type && (built || demo || day0Str)) {
             records.push({ type, built, demo, startStr, endStr, day0Str });
         }
     }
 
-    // KORRIGERT: Sjekker intelligent om input er "Dag X" eller "20.10.2025"
-    let isRelative = false;
+    // KORRIGERT: Samler unike dato-strenger direkte, ingen generering av blanke dager!
+    let dateObjects = [];
     records.forEach(r => {
-        if ((r.startStr && r.startStr.toLowerCase().startsWith('dag')) || 
-            (r.endStr && r.endStr.toLowerCase().startsWith('dag'))) {
-            isRelative = true;
-        }
-    });
-
-    if (!isRelative && !records.some(r => r.startStr || r.endStr)) {
-        isRelative = true; 
-    }
-
-    timelineSteps = ["Dag 0 (Før oppstart)"];
-
-    if (isRelative) {
-        let maxDag = 0;
-        records.forEach((r, idx) => { 
-            if (!r.startStr && r.built) r.startStr = `Dag ${idx * 2 + 1}`; 
-            if (!r.endStr && r.built) r.endStr = `Dag ${idx * 2 + 2}`;
-            if (!r.startStr && r.demo) r.startStr = `Dag ${idx * 2 + 2}`;
-            if (!r.endStr && r.demo) r.endStr = `Dag ${idx * 2 + 3}`;
-            
-            [r.startStr, r.endStr].forEach(str => {
-                if (str && str.toLowerCase().startsWith('dag')) {
-                    let num = parseInt(str.toLowerCase().replace(/[^\d]/g, ''), 10);
-                    if (!isNaN(num) && num > maxDag) maxDag = num;
+        [r.startStr, r.endStr].forEach(dStr => {
+            if (dStr && !dateObjects.find(d => d.str === dStr)) {
+                let sortVal = 0;
+                let numMatch = dStr.match(/\d+/g);
+                if (numMatch) {
+                    if (dStr.includes('.')) {
+                        let parts = dStr.split('.');
+                        if (parts.length === 3) {
+                            if (parts[0].length === 4) sortVal = parseInt(parts[0]+parts[1]+parts[2], 10);
+                            else sortVal = parseInt(parts[2]+parts[1]+parts[0], 10);
+                        } else {
+                            sortVal = parseInt(numMatch.join(''), 10);
+                        }
+                    } else {
+                        sortVal = parseInt(numMatch[0], 10);
+                    }
+                } else {
+                    sortVal = dStr.charCodeAt(0);
                 }
-            });
-        });
-        
-        for (let i = 1; i <= maxDag; i++) {
-            timelineSteps.push(`Dag ${i}`);
-        }
-
-        records.forEach(r => {
-            if (r.startStr && r.startStr.toLowerCase().startsWith('dag')) {
-                r.startStr = `Dag ${parseInt(r.startStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
-            }
-            if (r.endStr && r.endStr.toLowerCase().startsWith('dag')) {
-                r.endStr = `Dag ${parseInt(r.endStr.toLowerCase().replace(/[^\d]/g, ''), 10)}`;
+                dateObjects.push({ str: dStr, sortVal });
             }
         });
-
-    } else {
-        let minTime = Infinity, maxTime = -Infinity;
-        records.forEach(r => {
-            [r.startStr, r.endStr].forEach(dStr => {
-               if (dStr) {
-                  let time = parseDateObj(dStr).getTime();
-                  if (!isNaN(time)) {
-                      if (time < minTime) minTime = time;
-                      if (time > maxTime) maxTime = time;
-                  }
-               }
-            });
-        });
-        
-        if (minTime !== Infinity && maxTime !== -Infinity) {
-            let current = new Date(minTime);
-            let end = new Date(maxTime);
-            while (current <= end) {
-                timelineSteps.push(formatDateObj(current));
-                current.setDate(current.getDate() + 1);
-            }
-        }
-        
-        records.forEach(r => {
-           if (r.startStr) {
-               let time = parseDateObj(r.startStr).getTime();
-               if(!isNaN(time)) r.startStr = formatDateObj(new Date(time));
-           }
-           if (r.endStr) {
-               let time = parseDateObj(r.endStr).getTime();
-               if(!isNaN(time)) r.endStr = formatDateObj(new Date(time));
-           }
-        });
-    }
+    });
+    
+    dateObjects.sort((a,b) => a.sortVal - b.sortVal);
+    
+    timelineSteps = ["Dag 0 (Før oppstart)"].concat(dateObjects.map(d => d.str));
 
     buildMap.clear(); 
     demoMap.clear();
@@ -673,7 +624,7 @@ function parseCSVAndBuildTimeline(csvText) {
             
             if (r.day0Str === 'TRUE' || r.day0Str === 'SANN' || r.day0Str === '1') {
                 day0Map.set(r.type, true);
-            } else {
+            } else if (r.day0Str === 'FALSE' || r.day0Str === 'USANN' || r.day0Str === '0') {
                 day0Map.set(r.type, false);
             }
         }
@@ -690,7 +641,7 @@ function parseCSVAndBuildTimeline(csvText) {
     
     $('emptyState').style.display = 'none';$('timelineUI').style.display = 'flex';
     
-    setStatus(`Lastet inn plan. Starter på Dag 0.`, 'ok');
+    setStatus(`Lastet inn plan med ${timelineSteps.length - 1} unike hendelser. Starter på Dag 0.`, 'ok');
     stopSimulation(); 
 }
 
@@ -816,9 +767,9 @@ async function runPhaseSimulation(sliderIndexRaw) {
           return; 
         }
 
-        let typeVal = obj.props[propObjType] || "";
-        let builtVal = propStart ? (obj.props[propStart] || "") : "";
-        let demoVal = propEnd ? (obj.props[propEnd] || "") : "";
+        let typeVal = obj.props[propObjType] ? obj.props[propObjType].trim() : "";
+        let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].trim() : "";
+        let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].trim() : "";
 
         let bSchedule = buildMap.get(`${typeVal}|${builtVal}`);
         let dSchedule = demoMap.get(`${typeVal}|${demoVal}`);
@@ -875,7 +826,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
       const activityBox = $('activityList');
       const actKeys = Object.keys(activeActivities);
       if (actKeys.length === 0) {
-          activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet</li>';
+          activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet akkurat nå</li>';
       } else {
           let actHtml = '';
           actKeys.forEach(mName => {
