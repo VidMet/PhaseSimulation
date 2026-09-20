@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v15.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v16.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -120,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Sømløse dager og komplett logikk</span>
-    <em>v15.0</em>
+    <span>Synlighet tvunget og kontinuerlig tidslinje</span>
+    <em>v16.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -167,7 +167,6 @@
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
       <li>Velg egenskapene for Objekttype, Modell bygges og Modell rives.</li>
-      <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt/fag.</li>
       <li>Last opp din CSV/Excel-fil. Bruk mediespilleren for å bygge modellen!</li>
     </ol>
     <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
@@ -613,12 +612,11 @@ function parseCSVAndBuildTimeline(csvText) {
             });
         });
         
-        if (minDag === Infinity) minDag = 1;
-        if (maxDag === -Infinity) maxDag = 1;
-
-        // Fyller inn hver eneste dag sømløst
-        for (let i = minDag; i <= maxDag; i++) {
-            timelineSteps.push(`Dag ${i}`);
+        if (minDag !== Infinity && maxDag !== -Infinity) {
+            // Genererer HVER ENESTE dag i kalenderen sømløst
+            for (let i = minDag; i <= maxDag; i++) {
+                timelineSteps.push(`Dag ${i}`);
+            }
         }
 
         records.forEach(r => {
@@ -646,6 +644,7 @@ function parseCSVAndBuildTimeline(csvText) {
         if (minTime !== Infinity && maxTime !== -Infinity) {
             let current = new Date(minTime);
             let end = new Date(maxTime);
+            // Genererer HVER ENESTE dag i kalenderen sømløst
             while (current <= end) {
                 timelineSteps.push(formatDateObj(current));
                 current.setDate(current.getDate() + 1);
@@ -665,16 +664,31 @@ function parseCSVAndBuildTimeline(csvText) {
     }
 
     scheduleRules = [];
+    let day0Map = new Map();
+
     records.forEach(r => {
-        scheduleRules.push({
-            type: r.type,
-            built: r.built,
-            demo: r.demo,
-            startIdx: r.startStr ? timelineSteps.indexOf(r.startStr) : -1,
-            endIdx: r.endStr ? timelineSteps.indexOf(r.endStr) : -1,
-            day0: r.day0Str === 'TRUE' || r.day0Str === 'SANN' || r.day0Str === '1'
-        });
+        let sIdx = r.startStr ? timelineSteps.indexOf(r.startStr) : -1;
+        let eIdx = r.endStr ? timelineSteps.indexOf(r.endStr) : -1;
+
+        if (r.type) {
+            if (r.day0Str === 'TRUE' || r.day0Str === 'SANN' || r.day0Str === '1') {
+                day0Map.set(r.type, true);
+            } else if (!day0Map.has(r.type) && (r.day0Str === 'FALSE' || r.day0Str === 'USANN' || r.day0Str === '0')) {
+                day0Map.set(r.type, false);
+            }
+
+            scheduleRules.push({
+                type: r.type,
+                built: r.built,
+                demo: r.demo,
+                startIdx: sIdx,
+                endIdx: eIdx
+            });
+        }
     });
+
+    // Lagrer Day0 oppslaget globalt for runPhaseSimulation
+    window.day0Lookup = day0Map;
 
     if (timelineSteps.length <= 1) return alert("Fant ingen gyldige data i filen.");
 
@@ -687,7 +701,7 @@ function parseCSVAndBuildTimeline(csvText) {
     
     $('emptyState').style.display = 'none';$('timelineUI').style.display = 'flex';
     
-    setStatus(`Lastet inn plan med ${timelineSteps.length - 1} unike dager. Starter på Dag 0.`, 'ok');
+    setStatus(`Lastet inn kontinuerlig plan med ${timelineSteps.length - 1} dager. Starter på Dag 0.`, 'ok');
     stopSimulation(); 
 }
 
@@ -818,14 +832,13 @@ async function runPhaseSimulation(sliderIndexRaw) {
         let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toUpperCase() : "";
 
         let state = 'hidden'; 
-        let isDay0 = false;
+        let isDay0 = window.day0Lookup.get(typeVal) === true;
         let bStart = -1, bEnd = -1;
         let dStart = -1, dEnd = -1;
 
-        // Finn planlagt logikk i Excel-reglene
+        // Finner akkurat de tidsreglene som gjelder for dette objektet
         scheduleRules.forEach(r => {
             if (r.type === typeVal) {
-                if (r.day0) isDay0 = true;
                 if (r.built !== "" && r.built === builtVal) { bStart = r.startIdx; bEnd = r.endIdx; }
                 if (r.built === "" && builtVal === "") { 
                     if (r.demo === "" || (r.demo !== "" && r.demo === demoVal)) {
@@ -836,7 +849,7 @@ async function runPhaseSimulation(sliderIndexRaw) {
             }
         });
 
-        // Tidslinje og status-overganger
+        // Bestemmer tilstand basert på kalenderen
         if (sliderIndex === 0) {
             state = isDay0 ? 'completed' : 'hidden';
         } else {
@@ -887,45 +900,42 @@ async function runPhaseSimulation(sliderIndexRaw) {
       for (const mid of Object.keys(visibilityMap)) {
           const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
 
-          // 1. Skjul objekter trygt (uten å knytte color hit)
+          // TVINGENDE SYNLIGHETS-KOMMANDOER FOR Å GARANTERE OPPDATERING
           if (hidden.length > 0) {
             for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
               const chunk = hidden.slice(i, i + API_CHUNK_LIMIT);
-              await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: false });
-              await new Promise(r => setTimeout(r, 40)); 
+              await API.viewer.setObjectState({ modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] }, { visible: false, hidden: true });
+              await new Promise(r => setTimeout(r, 30)); 
             }
           }
           
-          // 2. Vis ferdige objekter i sin vanlige farge
           if (completed.length > 0) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset" });
+              await API.viewer.setObjectState(payload, { visible: true, hidden: false });
               try { await API.viewer.setObjectColor(payload, null); } catch(err) {}
-              await new Promise(r => setTimeout(r, 40)); 
+              await new Promise(r => setTimeout(r, 30)); 
             }
           }
 
-          // 3. Fargelegg grønt
           if (active_build.length > 0) {
             for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
               const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset" });
+              await API.viewer.setObjectState(payload, { visible: true, hidden: false });
               try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(err) {}
-              await new Promise(r => setTimeout(r, 40)); 
+              await new Promise(r => setTimeout(r, 30)); 
             }
           }
 
-          // 4. Fargelegg rødt
           if (active_demo.length > 0) {
             for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
               const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
-              await API.viewer.setObjectState(payload, { visible: "reset" });
+              await API.viewer.setObjectState(payload, { visible: true, hidden: false });
               try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(err) {}
-              await new Promise(r => setTimeout(r, 40)); 
+              await new Promise(r => setTimeout(r, 30)); 
             }
           }
       }
@@ -959,9 +969,9 @@ async function nullstillVisning() {
                 const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT);
                 const payload = { modelObjectIds: [{ modelId: mid, objectRuntimeIds: chunk }] };
                 
-                await API.viewer.setObjectState(payload, { visible: "reset" });
+                await API.viewer.setObjectState(payload, { visible: true, hidden: false });
                 try { await API.viewer.setObjectColor(payload, null); } catch(err) {}
-                await new Promise(r => setTimeout(r, 40));
+                await new Promise(r => setTimeout(r, 30));
             }
         }
         if (API.viewer.refresh) await API.viewer.refresh();
