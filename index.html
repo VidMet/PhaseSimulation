@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v22.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v23.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -99,17 +99,6 @@
     table { width: 100%; border-collapse: collapse; margin-top: 12px; font-size: 11px; }
     th, td { border: 1px solid var(--border); padding: 8px; text-align: left; }
     th { background: var(--surface2); font-family: var(--mono); }
-
-    .filter-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; width: 100%; max-width: 900px; margin-bottom: 20px; display: none; }
-    @media (max-width: 900px) { .filter-grid { grid-template-columns: repeat(2, 1fr); } }
-    @media (max-width: 500px) { .filter-grid { grid-template-columns: 1fr; } }
-
-    .panel { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 8px; }
-    .panel h3 { font-size: 13px; font-weight: 700; color: var(--blue); margin-bottom: 2px; }
-    .panel-header-dynamic { display: flex; flex-direction: column; gap: 6px; margin-bottom: 2px; }
-    .filter-box { background: var(--surface2); border: 1px solid var(--border); border-radius: 6px; height: 160px; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 6px; }
-    .filter-item { display: flex; align-items: center; gap: 8px; font-family: var(--mono); font-size: 11px; cursor: pointer; padding: 4px; }
-    .filter-item input { cursor: pointer; }
   </style>
 </head>
 <body>
@@ -120,8 +109,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Skuddsikker Fargelegging via State</span>
-    <em>v22.0</em>
+    <span>Ren Player & ID-krasj løst</span>
+    <em>v23.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -167,7 +156,6 @@
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
       <li>Velg egenskapene for Objekttype, Modell bygges og Modell rives.</li>
-      <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt/fag.</li>
       <li>Last opp din CSV/Excel-fil. Bruk mediespilleren for å bygge modellen!</li>
     </ol>
     <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
@@ -176,36 +164,6 @@
       <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>Dag 14</td><td>Dag 15</td><td>FALSE</td></tr>
       <tr><td>Grøfteskråning</td><td></td><td>Fase 2</td><td>Dag 15</td><td>Dag 17</td><td>TRUE</td></tr>
     </table>
-  </div>
-
-  <div class="filter-grid" id="filterGrid">
-    <div class="panel">
-      <div class="panel-header-dynamic">
-        <h3 style="color: var(--ink);">Valgfri egenskap (Filter 1):</h3>
-        <select id="dynamicPropSelect1"><option value="">-- Velg egenskap --</option></select>
-      </div>
-      <div class="filter-box" id="box_dynamic1">
-        <div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="panel-header-dynamic">
-        <h3 style="color: var(--ink);">Valgfri egenskap (Filter 2):</h3>
-        <select id="dynamicPropSelect2"><option value="">-- Velg egenskap --</option></select>
-      </div>
-      <div class="filter-box" id="box_dynamic2">
-        <div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>
-      </div>
-    </div>
-    <div class="panel">
-      <div class="panel-header-dynamic">
-        <h3 style="color: var(--ink);">Valgfri egenskap (Filter 3):</h3>
-        <select id="dynamicPropSelect3"><option value="">-- Velg egenskap --</option></select>
-      </div>
-      <div class="filter-box" id="box_dynamic3">
-        <div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>
-      </div>
-    </div>
   </div>
 
   <div class="timeline-container" id="timelineUI">
@@ -253,7 +211,7 @@ let allDiscoveredProperties = new Set();
 let timelineSteps = []; 
 let scheduleRules = [];
 
-// Sikrer at IFCSITE (terreng) leses riktig, for å fange grøfteskråninger
+// Sikrer at IFCSITE (terreng) leses riktig
 const IGNORE = new Set(['IFCPROJECT','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 1000; 
 
@@ -357,8 +315,8 @@ async function fetchModels() {
     $('modelSelectDropdown').innerHTML = html;
     
     const oppdaterHeader = () => {
-        if ($('cbSelectedObjects').checked) $('modelSelectHeader').textContent = '🎯 KUN valgte objekter skannes ▼';
-        else if ($('cbAllModels').checked) $('modelSelectHeader').textContent = '🌍 ALLE modeller skannes ▼';
+        if ($('cbSelectedObjects').checked)$('modelSelectHeader').textContent = '🎯 KUN valgte objekter skannes ▼';
+        else if ($('cbAllModels').checked)$('modelSelectHeader').textContent = '🌍 ALLE modeller skannes ▼';
         else {
             const checked = document.querySelectorAll('.standard-model-cb:checked').length;
             $('modelSelectHeader').textContent = `${checked} modeller inkludert ▼`;
@@ -487,8 +445,7 @@ async function scanModels() {
     populateDropdowns();
     $('csvFileInput').disabled = false;
     $('btnUpload').disabled = false;
-    $('filterGrid').style.display = 'grid'; 
-    setStatus(`Skanning ferdig. Velg egenskaper og filter. Klar til opplasting.`, 'ok');
+    setStatus(`Skanning ferdig. Klar til opplasting.`, 'ok');
   } catch(e) { setStatus('Feil under skanning: ' + e.message, 'error'); }
   $('btnScan').disabled = false;
 }
@@ -501,43 +458,6 @@ function populateDropdowns() {
   $('propObjType').innerHTML = baseHtml; $('propObjType').disabled = false;
   $('propStart').innerHTML = optionalHtml; $('propStart').disabled = false;
   $('propEnd').innerHTML = optionalHtml; $('propEnd').disabled = false;
-
-  [1, 2, 3].forEach(i => {
-    $(`dynamicPropSelect${i}`).innerHTML = baseHtml;
-    $(`dynamicPropSelect${i}`).onchange = (e) => {
-      const propName = e.target.value;
-      if (!propName) {
-        $(`box_dynamic${i}`).innerHTML = '<div style="color: var(--muted); font-size: 11px; padding:4px;">Velg egenskap over</div>';
-        return;
-      }
-      const uniqueValues = new Set();
-      modelObjectsData.forEach(obj => { uniqueValues.add(obj.props[propName] || "Mangler verdi"); });
-      renderFilterBox(`box_dynamic${i}`, Array.from(uniqueValues).sort((a,b) => a.localeCompare(b, 'no', {sensitivity: 'base'})), propName);
-    };
-  });
-}
-
-function renderFilterBox(elementId, values, categoryKey) {
-  const box = $(elementId);
-  if(values.length === 0) {
-    box.innerHTML = '<div style="color: var(--muted); font-size: 11px; padding:4px;">Ingen verdier funnet</div>';
-    return;
-  }
-
-  box.innerHTML = values.map(val => `
-    <label class="filter-item">
-      <input type="checkbox" value="${val}" data-cat="${categoryKey}" class="filter-checkbox">
-      <span>${val}</span>
-    </label>
-  `).join('');
-
-  box.querySelectorAll('.filter-checkbox').forEach(cb => {
-    cb.addEventListener('change', () => {
-        if(timelineSteps && timelineSteps.length > 0) {
-            runPhaseSimulation($('phaseSlider').value);
-        }
-    });
-  });
 }
 
 function parseDateObj(dStr) {
@@ -560,7 +480,7 @@ $('csvFileInput').addEventListener('change', function(e) {
 
   const propObjType = $('propObjType').value;
   if (!propObjType) {
-    alert("Du må i det minste velge egenskap for Objekttype før du laster opp filen!");
+    alert("Du må velge egenskap for Objekttype før du laster opp filen!");
     this.value = '';
     return;
   }
@@ -807,32 +727,9 @@ async function runPhaseSimulation(sliderIndexRaw) {
       const propStart = $('propStart').value;
       const propEnd = $('propEnd').value;
 
-      const activeFilters = {};
-      document.querySelectorAll('.filter-checkbox:checked').forEach(cb => {
-        const cat = cb.getAttribute('data-cat');
-        if (!activeFilters[cat]) activeFilters[cat] = new Set();
-        activeFilters[cat].add(cb.value);
-      });
-      const filterCategories = Object.keys(activeFilters);
-
       modelObjectsData.forEach(obj => {
         if (!visibilityMap[obj.modelId]) visibilityMap[obj.modelId] = { hidden: [], active_build: [], active_demo: [], completed: [] };
         
-        let matchesFilters = true;
-        for (const cat of filterCategories) {
-          const propKey = $(`dynamicPropSelect${cat.replace('dynamic', '')}`).value;
-          const objVal = obj.props[propKey] || "Mangler verdi";
-          if (!activeFilters[cat].has(objVal)) {
-            matchesFilters = false;
-            break;
-          }
-        }
-
-        if (!matchesFilters) {
-          visibilityMap[obj.modelId].hidden.push(obj.runtimeId);
-          return; 
-        }
-
         let typeVal = obj.props[propObjType] ? obj.props[propObjType].toString().trim().toLocaleUpperCase('nb-NO') : "";
         let builtVal = propStart && obj.props[propStart] ? obj.props[propStart].toString().trim().toLocaleUpperCase('nb-NO') : "";
         let demoVal = propEnd && obj.props[propEnd] ? obj.props[propEnd].toString().trim().toLocaleUpperCase('nb-NO') : "";
@@ -912,12 +809,11 @@ async function runPhaseSimulation(sliderIndexRaw) {
           const stringModelId = String(mid);
           const { hidden, active_build, active_demo, completed } = visibilityMap[mid];
 
-          // 1. Skjul det som skal skjules med KUN visible: false
+          // 1. Skjul skjulte objekter (vi bevarer runtimeId nøyaktig slik den er)
           if (hidden.length > 0) {
             for (let i = 0; i < hidden.length; i += API_CHUNK_LIMIT) {
               const chunk = hidden.slice(i, i + API_CHUNK_LIMIT); 
               const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              
               try {
                   await API.viewer.setObjectState(payload, { visible: false });
               } catch(err) { console.error("Feil ved skjuling:", err); }
@@ -925,60 +821,41 @@ async function runPhaseSimulation(sliderIndexRaw) {
             }
           }
           
-          // 2. Vis ferdige objekter trygt (visible: "reset") og fjern deretter farge
+          // 2. Vis ferdige objekter
           if (completed.length > 0) {
             for (let i = 0; i < completed.length; i += API_CHUNK_LIMIT) {
               const chunk = completed.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              
-              await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
-                  await API.viewer.setObjectState(payload, { color: "reset" }); 
-              } catch(err1) {
-                  try {
-                      await API.viewer.setObjectState(payload, { color: null });
-                  } catch(err2) {
-                      if (typeof API.viewer.setObjectColor === 'function') {
-                          try { await API.viewer.setObjectColor(payload, null); } catch(err3) {}
-                      }
-                  }
-              }
+                  await API.viewer.setObjectState(payload, { visible: true });
+                  try { await API.viewer.setObjectColor(payload, null); } catch(e){}
+              } catch(err) { console.error("Feil ved visning/fargenullstilling:", err); }
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
-          // 3. Vis og fargelegg aktive bygge-objekter 
+          // 3. Byggefase (Grønn)
           if (active_build.length > 0) {
             for (let i = 0; i < active_build.length; i += API_CHUNK_LIMIT) {
               const chunk = active_build.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              
-              await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
-                  await API.viewer.setObjectState(payload, { color: COLOR_BUILD });
-              } catch(err1) { 
-                  if (typeof API.viewer.setObjectColor === 'function') {
-                      try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(err2){}
-                  }
-              }
+                  await API.viewer.setObjectState(payload, { visible: true });
+                  try { await API.viewer.setObjectColor(payload, COLOR_BUILD); } catch(e){}
+              } catch(err) { console.error("Feil ved grønn fargelegging:", err); }
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
 
-          // 4. Vis og fargelegg aktive rive-objekter
+          // 4. Rivefase (Rød)
           if (active_demo.length > 0) {
             for (let i = 0; i < active_demo.length; i += API_CHUNK_LIMIT) {
               const chunk = active_demo.slice(i, i + API_CHUNK_LIMIT);
               const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
-              
-              await API.viewer.setObjectState(payload, { visible: "reset" });
               try {
-                  await API.viewer.setObjectState(payload, { color: COLOR_DEMO });
-              } catch(err1) { 
-                  if (typeof API.viewer.setObjectColor === 'function') {
-                      try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(err2){}
-                  }
-              }
+                  await API.viewer.setObjectState(payload, { visible: true });
+                  try { await API.viewer.setObjectColor(payload, COLOR_DEMO); } catch(e){}
+              } catch(err) { console.error("Feil ved rød fargelegging:", err); }
               await new Promise(r => setTimeout(r, 40)); 
             }
           }
@@ -1015,22 +892,16 @@ async function nullstillVisning() {
                 const chunk = resetIds[mid].slice(i, i + API_CHUNK_LIMIT); 
                 const payload = { modelObjectIds: [{ modelId: stringModelId, objectRuntimeIds: chunk }] };
                 
-                await API.viewer.setObjectState(payload, { visible: "reset" });
                 try {
-                    await API.viewer.setObjectState(payload, { color: "reset" });
-                } catch(err1) {
-                    try { await API.viewer.setObjectState(payload, { color: null }); } catch(err2){}
-                    if (typeof API.viewer.setObjectColor === 'function') {
-                        try { await API.viewer.setObjectColor(payload, null); } catch(err3){}
-                    }
-                }
+                    await API.viewer.setObjectState(payload, { visible: true });
+                    try { await API.viewer.setObjectColor(payload, null); } catch(err){}
+                } catch(err) { console.error("Feil ved nullstilling:", err); }
                 await new Promise(r => setTimeout(r, 40));
             }
         }
         if (API.viewer.refresh) await API.viewer.refresh();
         $('csvFileInput').value = '';
         $('timelineUI').style.display = 'none';$('emptyState').style.display = 'block';
-        document.querySelectorAll('.filter-checkbox').forEach(cb => cb.checked = false);
         setStatus('Visning nullstilt', 'ok');
     } catch(e) { 
         setStatus('Feil ved nullstilling: ' + e.message, 'error'); 
