@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v6.1</title>
+  <title>BIM 4D Fremdriftsplanlegger v6.2</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -91,7 +91,7 @@
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
     <span>Excel-import og modellutvalg</span>
-    <em>v6.1</em>
+    <em>v6.2</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -224,7 +224,7 @@ async function fetchModels() {
       const resModels = await API.models.getModels();
       const list = Array.isArray(resModels) ? resModels : (resModels?.models || resModels?.items || resModels?.data || []);
       list.forEach(m => {
-        const id = m.id || m.modelId || m.modelid;
+        const id = String(m.id || m.modelId || m.modelid); // Type-sikring
         const fn = m.name || m.fileName || m.filename || m.modelName;
         if (id && fn) nameMap.set(id, lastPathPart(fn));
       });
@@ -232,13 +232,24 @@ async function fetchModels() {
 
     const objs = await API.viewer.getObjects();
     allModels = (objs || []).map(m => {
-      const mid = m.modelId || m.modelid;
-      let finalName = nameMap.get(mid) || m.name || m.modelName;
-      if (!finalName || finalName.trim() === '') finalName = 'Navnløs modell';
+      const originalMid = m.modelId || m.modelid;
+      const midString = String(originalMid); // Type-sikring
+      
+      let finalName = nameMap.get(midString) || m.modelName || m.name;
+      
+      // Brutal fallback: Let etter filnavn i selve rotnodene hvis alt annet feiler
+      if (!finalName || finalName.trim() === '') {
+          const rootObj = (m.objects || []).find(o => o.name && o.name.trim() !== '');
+          if (rootObj) finalName = rootObj.name;
+      }
+
+      if (!finalName || finalName.trim() === '') {
+          finalName = `Modell ${midString.substring(0,5)}...`; // Unngår "Navnløs modell" helt
+      }
       
       return { 
-          id: mid, 
-          name: finalName,
+          id: originalMid, 
+          name: lastPathPart(finalName),
           rawObjects: m.objects || [],
           objectIds: (m.objects || []).map(o => o.id || o.objectRuntimeId).filter(id => id != null)
       };
@@ -329,7 +340,7 @@ async function scanModels() {
         }
         
         allModels.forEach(m => {
-            if ($('cbAllModels').checked || selectedModelIds.includes(m.id)) {
+            if ($('cbAllModels').checked || selectedModelIds.includes(String(m.id))) {
                 let allExpandedIds = [];
                 m.rawObjects.forEach(rawO => { allExpandedIds = allExpandedIds.concat(getAllRuntimeIds(rawO)); });
                 chunksToProcess.push({ modelId: m.id, objectIds: Array.from(new Set(allExpandedIds)) });
