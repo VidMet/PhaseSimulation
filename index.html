@@ -2,7 +2,7 @@
 <html lang="nb">
 <head>
   <meta charset="UTF-8"/>
-  <title>BIM 4D Fremdriftsplanlegger v10.0</title>
+  <title>BIM 4D Fremdriftsplanlegger v11.0</title>
   <meta name="viewport" content="width=device-width, initial-scale=1"/>
   
   <script src="https://components.connect.trimble.com/trimble-connect-workspace-api/index.js"></script>
@@ -81,7 +81,6 @@
     .speed-control { display: flex; align-items: center; gap: 6px; font-family: var(--mono); font-size: 11px; color: var(--muted); background: var(--surface2); padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); }
     .speed-control input { background: transparent; color: var(--ink); border: none; outline: none; font-family: var(--mono); font-weight: 700; font-size: 12px; width: 35px; text-align: center; }
 
-    /* Nytt aktivitetspanel */
     .activity-box { background: var(--surface2); padding: 14px; border-radius: 8px; border: 1px solid var(--border); margin-top: 15px; width: 100%; }
     .activity-box h4 { color: var(--blue); margin-bottom: 10px; font-size: 13px; font-weight: 700; }
     .activity-list { list-style-type: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px;}
@@ -121,8 +120,8 @@
   </div>
   <div class="app-title">
     <b>BIM 4D Fremdriftsplanlegger</b>
-    <span>Dag-for-dag og Aktivitetsvisning</span>
-    <em>v10.0</em>
+    <span>Day0-funksjonalitet inkludert</span>
+    <em>v11.0</em>
   </div>
   <div class="status">
     <span id="statusText">Venter...</span>
@@ -167,15 +166,15 @@
     <ol style="text-align: left; margin: 0 auto; line-height: 1.8; font-size: 13px; padding-left: 20px;">
       <li>Trykk <strong>1. Hent modeller</strong> og velg ønsket utvalg.</li>
       <li>Trykk <strong>2. Skann utvalg</strong>.</li>
-      <li>Velg egenskapene for Objekttype, Modell bygges og Modell rives. La Bygges være tom hvis objektet er eksisterende fra start.</li>
+      <li>Velg egenskapene for Objekttype, Modell bygges og Modell rives.</li>
       <li>Bruk eventuelt de dynamiske filtrene som dukker opp til å skjule irrelevante sjikt/fag.</li>
       <li>Last opp din CSV/Excel-fil. Bruk mediespilleren for å bygge modellen!</li>
     </ol>
-    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (5 kolonner støttes):</p>
+    <p style="margin-top:20px; font-weight: 600;">Forventet struktur i CSV-filen (6 kolonner støttes):</p>
     <table>
-      <tr><th>Objekttype</th><th>Modell bygges</th><th>Modell rives</th><th>DatoStart</th><th>DatoSlutt</th></tr>
-      <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>01.05.2026</td><td>15.05.2026</td></tr>
-      <tr><td>Skjæring</td><td></td><td>Fase 2</td><td>16.05.2026</td><td>01.06.2026</td></tr>
+      <tr><th>Objekttype</th><th>Modell bygges</th><th>Modell rives</th><th>DatoStart</th><th>DatoSlutt</th><th>Day0</th></tr>
+      <tr><td>Slitelag</td><td>Fase 1</td><td></td><td>01.05.2026</td><td>15.05.2026</td><td>FALSE</td></tr>
+      <tr><td>Skjæring</td><td></td><td>Fase 2</td><td>16.05.2026</td><td>01.06.2026</td><td>TRUE</td></tr>
     </table>
   </div>
 
@@ -255,6 +254,7 @@ let allDiscoveredProperties = new Set();
 let timelineSteps = []; 
 let buildMap = new Map(); 
 let demoMap = new Map();  
+let day0Map = new Map(); // Nytt kart for å håndtere Day0
 
 const IGNORE = new Set(['IFCPROJECT','IFCSITE','IFCBUILDING','IFCBUILDINGSTOREY']);
 const API_CHUNK_LIMIT = 2000; 
@@ -532,7 +532,6 @@ function renderFilterBox(elementId, values, categoryKey) {
   `).join('');
 }
 
-// Hjelpefunksjon for å parse datoer robus uansett dd.mm.yyyy eller yyyy-mm-dd
 function parseDateObj(dStr) {
   if (!dStr) return null;
   let parts = dStr.split(/[\.\-\/]/);
@@ -575,18 +574,18 @@ function parseCSVAndBuildTimeline(csvText) {
         const demo = (cols[2] || '').trim();
         const startStr = (cols[3] || '').trim();
         const endStr = (cols[4] || '').trim();
+        const day0Str = (cols[5] || '').trim().toUpperCase(); // Ny Day0 kolonne
 
         if (startStr || endStr) isRelative = false;
         
-        if (type && (built || demo)) {
-            records.push({ type, built, demo, startStr, endStr });
+        if (type && (built || demo || day0Str)) {
+            records.push({ type, built, demo, startStr, endStr, day0Str });
         }
     }
 
     timelineSteps = ["Dag 0 (Før oppstart)"];
 
     if (isRelative) {
-        // Generer Dager (Relative tall)
         let maxDag = 0;
         records.forEach((r, idx) => { 
             if(r.built) {
@@ -599,7 +598,6 @@ function parseCSVAndBuildTimeline(csvText) {
         });
         for (let i = 1; i <= maxDag; i++) timelineSteps.push(`Dag ${i}`);
     } else {
-        // Kontinuerlig dato-tidslinje
         let minTime = Infinity, maxTime = -Infinity;
         records.forEach(r => {
             [r.startStr, r.endStr].forEach(dStr => {
@@ -620,7 +618,6 @@ function parseCSVAndBuildTimeline(csvText) {
             }
         }
         
-        // Standardiser input-datoer i records slik at de matcher timelineSteps
         records.forEach(r => {
            if(r.startStr) r.startStr = formatDateObj(parseDateObj(r.startStr));
            if(r.endStr) r.endStr = formatDateObj(parseDateObj(r.endStr));
@@ -629,13 +626,23 @@ function parseCSVAndBuildTimeline(csvText) {
 
     buildMap.clear(); 
     demoMap.clear();
+    day0Map.clear();
 
     records.forEach(r => {
         let sIdx = r.startStr ? timelineSteps.indexOf(r.startStr) : -1;
         let eIdx = r.endStr ? timelineSteps.indexOf(r.endStr) : -1;
 
-        if (r.type && r.built) buildMap.set(`${r.type}|${r.built}`, { startIdx: sIdx, endIdx: eIdx });
-        if (r.type && r.demo) demoMap.set(`${r.type}|${r.demo}`, { startIdx: sIdx, endIdx: eIdx });
+        if (r.type) {
+            if (r.built) buildMap.set(`${r.type}|${r.built}`, { startIdx: sIdx, endIdx: eIdx });
+            if (r.demo) demoMap.set(`${r.type}|${r.demo}`, { startIdx: sIdx, endIdx: eIdx });
+            
+            // Håndter Day0 logikken. Tolker alt som "TRUE", "SANN" eller "1" som positivt
+            if (r.day0Str === 'TRUE' || r.day0Str === 'SANN' || r.day0Str === '1') {
+                day0Map.set(r.type, true);
+            } else {
+                day0Map.set(r.type, false);
+            }
+        }
     });
 
     if (timelineSteps.length <= 1) return alert("Fant ingen gyldige data i filen.");
@@ -781,36 +788,49 @@ async function runPhaseSimulation(sliderIndexRaw) {
 
         let bSchedule = buildMap.get(`${typeVal}|${builtVal}`);
         let dSchedule = demoMap.get(`${typeVal}|${demoVal}`);
+        let isDay0 = day0Map.get(typeVal) === true;
 
         let state = 'completed'; 
 
-        if (builtVal !== "") {
-            if (bSchedule && bSchedule.startIdx !== -1) {
-                if (sliderIndex < bSchedule.startIdx) {
-                    state = 'hidden'; 
-                } else if (bSchedule.endIdx !== -1 && sliderIndex >= bSchedule.startIdx && sliderIndex < bSchedule.endIdx) {
-                    state = 'active_build'; 
+        // Logikk for Dag 0 (index 0)
+        if (sliderIndex === 0) {
+            if (isDay0) {
+                state = 'completed'; // Synlig i standardfarge
+            } else {
+                state = 'hidden';    // Avslått
+            }
+        } else {
+            // Normal Tidslinje-logikk for Dag 1 og utover
+            if (builtVal !== "") {
+                if (bSchedule && bSchedule.startIdx !== -1) {
+                    if (sliderIndex < bSchedule.startIdx) {
+                        state = isDay0 ? 'completed' : 'hidden'; 
+                    } else if (bSchedule.endIdx !== -1 && sliderIndex >= bSchedule.startIdx && sliderIndex < bSchedule.endIdx) {
+                        state = 'active_build'; 
+                    } else {
+                        state = 'completed'; 
+                    }
                 } else {
-                    state = 'completed'; 
+                    state = isDay0 ? 'completed' : 'hidden'; 
                 }
             } else {
-                state = 'hidden'; 
+               // Objekter uten oppføringsfase arver status fra Dag 0 før rivning
+               state = isDay0 ? 'completed' : 'hidden';
             }
-        }
 
-        if (demoVal !== "") {
-            if (dSchedule && dSchedule.startIdx !== -1) {
-                if (dSchedule.endIdx !== -1 && sliderIndex >= dSchedule.startIdx && sliderIndex < dSchedule.endIdx) {
-                    state = 'active_demo'; 
-                } else if (sliderIndex >= dSchedule.endIdx || (dSchedule.endIdx === -1 && sliderIndex >= dSchedule.startIdx)) {
-                    state = 'hidden'; 
+            if (demoVal !== "") {
+                if (dSchedule && dSchedule.startIdx !== -1) {
+                    if (dSchedule.endIdx !== -1 && sliderIndex >= dSchedule.startIdx && sliderIndex < dSchedule.endIdx) {
+                        state = 'active_demo'; 
+                    } else if (sliderIndex >= dSchedule.endIdx || (dSchedule.endIdx === -1 && sliderIndex >= dSchedule.startIdx)) {
+                        state = 'hidden'; 
+                    }
                 }
             }
         }
 
         visibilityMap[obj.modelId][state].push(obj.runtimeId);
         
-        // Hent data for Aktivitetsboksen
         if (state === 'active_build' || state === 'active_demo') {
             const targetModel = allModels.find(m => String(m.id) === String(obj.modelId));
             const mName = targetModel ? targetModel.name : "Ukjent modell";
@@ -821,11 +841,10 @@ async function runPhaseSimulation(sliderIndexRaw) {
         }
       });
 
-      // Oppdaterer aktivitetsboksen
       const activityBox = $('activityList');
       const actKeys = Object.keys(activeActivities);
       if (actKeys.length === 0) {
-          activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet i dag</li>';
+          activityBox.innerHTML = '<li class="no-activity">Ingen pågående aktivitet</li>';
       } else {
           let actHtml = '';
           actKeys.forEach(mName => {
